@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { ld } from "@/components/ui/primitives";
 
 // Lightweight HTML charts rendered on the server (no client JS).
 
@@ -7,7 +8,6 @@ export interface Segment {
   label: string;
   value: number;
   color: string;
-  icon?: ReactNode;
 }
 
 /** Part-to-whole for register states; every colour is paired with a text label. */
@@ -35,12 +35,12 @@ export function SegmentedBar({ segments, className }: { segments: Segment[]; cla
   );
 }
 
-// Sequential: one hue (navy-blue), light → dark with attendance.
-const RAMP = ["#f0f5fd", "#d7e5fb", "#b3cdf6", "#7faaee", "#4a83df", "#1f5fc9", "#163a70"];
-function rampColor(v: number) {
-  // 60% → lightest, 100% → darkest
+// Sequential: one hue, light → dark with attendance (inverted for the dark theme).
+const RAMP_LIGHT = ["#f0f5fd", "#d7e5fb", "#b3cdf6", "#7faaee", "#4a83df", "#1f5fc9", "#163a70"];
+const RAMP_DARK = ["#15213a", "#183056", "#1c4176", "#255499", "#3468bb", "#5288dc", "#8db2f3"];
+function rampIndex(v: number) {
   const t = Math.max(0, Math.min(1, (v - 60) / 40));
-  return RAMP[Math.min(RAMP.length - 1, Math.floor(t * RAMP.length))];
+  return Math.min(RAMP_LIGHT.length - 1, Math.floor(t * RAMP_LIGHT.length));
 }
 
 export function Heatmap({
@@ -59,7 +59,7 @@ export function Heatmap({
       <table className="w-full border-separate border-spacing-[3px] text-xs">
         <thead>
           <tr>
-            <th className="sticky left-0 bg-white" />
+            <th className="sticky left-0 bg-surface" />
             {columns.map((c) => (
               <th key={c.id} className="px-1 pb-1 text-center font-medium whitespace-nowrap text-muted">
                 <div>{c.label}</div>
@@ -71,19 +71,19 @@ export function Heatmap({
         <tbody>
           {rows.map((r) => (
             <tr key={r.id}>
-              <th className="sticky left-0 bg-white pr-2 text-left font-medium whitespace-nowrap text-ink">{r.label}</th>
+              <th className="sticky left-0 bg-surface pr-2 text-left font-medium whitespace-nowrap text-ink">{r.label}</th>
               {columns.map((c) => {
                 const v = values.get(r.id)?.get(c.id) ?? null;
-                const dark = v !== null && v >= 88;
+                const i = v === null ? -1 : rampIndex(v);
                 return (
                   <td
                     key={c.id}
                     title={v === null ? "No sessions" : `${v.toFixed(1)}%`}
-                    className={cn(
-                      "h-8 min-w-11 rounded-md text-center font-semibold tabular-nums",
-                      v !== null && v < threshold && "ring-2 ring-bad ring-inset",
-                    )}
-                    style={{ background: v === null ? "#f6f8fb" : rampColor(v), color: v === null ? "#8a98ae" : dark ? "#fff" : "#0f1f3d" }}
+                    className={cn("h-8 min-w-11 rounded-md text-center font-semibold tabular-nums", v !== null && v < threshold && "ring-2 ring-bad ring-inset")}
+                    style={{
+                      background: v === null ? "var(--subtle)" : ld(RAMP_LIGHT[i], RAMP_DARK[i]),
+                      color: v === null ? "var(--faint)" : i >= 5 ? ld("#ffffff", "#0b1220") : "var(--ink)",
+                    }}
                   >
                     {v === null ? "·" : Math.round(v)}
                   </td>
@@ -96,8 +96,8 @@ export function Heatmap({
       <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] text-muted">
         <span>60%</span>
         <div className="flex">
-          {RAMP.map((c) => (
-            <span key={c} className="h-2.5 w-6" style={{ background: c }} />
+          {RAMP_LIGHT.map((c, i) => (
+            <span key={c} className="h-2.5 w-6" style={{ background: ld(c, RAMP_DARK[i]) }} />
           ))}
         </div>
         <span>100%</span>

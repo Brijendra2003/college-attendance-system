@@ -15,6 +15,8 @@ import {
   Megaphone,
   Network,
   NotebookPen,
+  PencilRuler,
+  Repeat,
   ScrollText,
   Settings,
   ShieldCheck,
@@ -46,6 +48,8 @@ const ICONS: Record<string, LucideIcon> = {
   megaphone: Megaphone,
   "file-spreadsheet": FileSpreadsheet,
   "scroll-text": ScrollText,
+  "pencil-ruler": PencilRuler,
+  repeat: Repeat,
   settings: Settings,
 };
 

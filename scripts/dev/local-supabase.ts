@@ -96,7 +96,7 @@ async function userJson(userId: string) {
   };
 }
 
-async function issueSession(userId: string, aal: "aal1" | "aal2", sessionId = randomUUID()) {
+async function issueSession(userId: string, aal: "aal1" | "aal2", sessionId: string = randomUUID()) {
   const user = await userJson(userId);
   if (!user) throw new Error("user vanished");
   const now = Math.floor(Date.now() / 1000);
@@ -245,16 +245,18 @@ async function main() {
     child.on("exit", (code) => code && console.error(`PostgREST exited with code ${code}`));
     process.on("exit", () => child.kill());
   }
-  http
-    .createServer((req, res) => {
+  const server = http.createServer((req, res) => {
       const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
       if (url.pathname.startsWith("/rest/v1")) return proxyRest(req, res, url.pathname.slice(8) + url.search);
       if (url.pathname.startsWith("/auth/v1")) {
         return auth(req, res, url.pathname.slice(8), url.searchParams).catch((e) => fail(res, 500, "unexpected_failure", String(e?.message ?? e)));
       }
       fail(res, 404, "not_found", "Only /rest/v1 and /auth/v1 are served locally");
-    })
-    .listen(PORT, () => {
+    });
+  // Outlive clients' pooled keep-alive sockets, or reused sockets get reset mid-request.
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 66_000;
+  server.listen(PORT, () => {
       console.log(`Local Supabase gateway on http://localhost:${PORT}`);
       console.log(`NEXT_PUBLIC_SUPABASE_URL=http://localhost:${PORT}`);
       console.log(`NEXT_PUBLIC_SUPABASE_ANON_KEY=${ANON_KEY}`);

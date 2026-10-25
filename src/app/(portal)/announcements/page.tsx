@@ -3,19 +3,19 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { Megaphone, Plus } from "lucide-react";
 import { formatDateTime } from "@/shared/dates";
-import { can, departmentScope } from "@/lib/auth/permissions";
+import { can } from "@/lib/auth/permissions";
 import { requireUser } from "@/lib/auth/session";
-import { db } from "@/lib/data/store";
-import { Badge, Card, DeptChip, PageHeader, PageSkeleton, Progress } from "@/components/ui/primitives";
+import { db, unwrap } from "@/lib/db";
+import { Badge, Card, DeptChip, EmptyState, PageHeader, PageSkeleton } from "@/components/ui/primitives";
 import { ActionForm, Dialog, Field, Input, Select, SubmitButton, Textarea } from "@/components/ui/forms";
 import { publishAnnouncement } from "@/features/announcements/actions";
-import { actorName, departmentOptions, deptCode } from "@/features/common/lookups";
+import { departmentOptions, getDepartments } from "@/features/common/lookups";
 
 export const metadata: Metadata = { title: "Announcements" };
 
 export default function AnnouncementsPage() {
   return (
-    <Suspense fallback={<PageSkeleton />}>
+    <Suspense fallback={<PageSkeleton variant="table" />}>
       <Announcements />
     </Suspense>
   );
@@ -25,16 +25,31 @@ const PRIORITY = { normal: "neutral", important: "info", urgent: "bad" } as cons
 const AUDIENCE = { college: "Whole college", students: "All students", staff: "All staff", parents: "Parents", department: "Department" } as const;
 const CHANNEL = { inapp: "In-app", push: "Push", email: "Email", sms: "SMS" } as const;
 
+interface Row {
+  id: string;
+  title: string;
+  body: string;
+  priority: keyof typeof PRIORITY;
+  audience: keyof typeof AUDIENCE;
+  department_id: string | null;
+  channels: (keyof typeof CHANNEL)[];
+  publish_at: string;
+  published: boolean;
+  recipient_count: number;
+}
+
 async function Announcements() {
   const user = await requireUser();
   const college = can(user, "announcements.college");
-  const cls = can(user, "announcements.class");
-  if (!college && !cls) redirect("/denied?p=announcements.college");
-  const scope = college ? null : departmentScope(user, "announcements.class");
-  const items = db()
-    .announcements.filter((a) => !scope || a.departmentId === scope || a.audience !== "department")
-    .sort((a, b) => b.publishAt.localeCompare(a.publishAt));
-  const now = new Date().toISOString();
+  if (!college && !can(user, "announcements.class")) redirect("/denied?p=announcements.college");
+  const s = await db();
+  const [rows, departments, options] = await Promise.all([
+    s.from("announcements").select("id, title, body, priority, audience, department_id, channels, publish_at, published, recipient_count").order("publish_at", { ascending: false }).limit(100),
+    getDepartments(),
+    departmentOptions(),
+  ]);
+  const items = unwrap(rows) as Row[];
+  const code = (id: string | null) => departments.find((d) => d.id === id)?.code;
 
   return (
     <>
@@ -48,7 +63,7 @@ async function Announcements() {
               <Field name="title" label="Title" className="sm:col-span-2">
                 <Input name="title" placeholder="e.g. Practical exam schedule published" />
               </Field>
-              <Field name="body" label="Message" className="sm:col-span-2" hint="Markdown supported">
+              <Field name="body" label="Message" className="sm:col-span-2">
                 <Textarea name="body" rows={5} />
               </Field>
               <Field name="priority" label="Priority">
@@ -75,7 +90,7 @@ async function Announcements() {
                 <Field name="departmentId" label="Department" hint="Only for the Department audience">
                   <Select name="departmentId" defaultValue="">
                     <option value="">—</option>
-                    {departmentOptions().map((o) => (
+                    {options.map((o) => (
                       <option key={o.value} value={o.value}>
                         {o.label}
                       </option>
@@ -83,67 +98,61 @@ async function Announcements() {
                   </Select>
                 </Field>
               )}
-              <Field name="publishAt" label="Schedule (optional)" hint="Leave empty to send now">
+              <Field name="publishAt" label="Schedule (optional, IST)" hint="Leave empty to send now">
                 <Input name="publishAt" type="datetime-local" />
               </Field>
               <fieldset className="sm:col-span-2">
                 <legend className="mb-1.5 text-xs font-semibold">Channels</legend>
                 <div className="flex flex-wrap gap-4 text-sm">
+                  <input type="hidden" name="channels" value="inapp" />
                   {Object.entries(CHANNEL).map(([k, v]) => (
                     <label key={k} className="inline-flex items-center gap-2">
-                      <input type="checkbox" name="channels" value={k} defaultChecked={k === "inapp" || k === "push"} disabled={k === "inapp"} className="size-4 accent-navy" />
-                      {k === "inapp" && <input type="hidden" name="channels" value="inapp" />}
+                      <input type="checkbox" name={k === "inapp" ? undefined : "channels"} value={k} defaultChecked={k === "inapp" || k === "push"} disabled={k === "inapp"} className="size-4 accent-[var(--navy)]" />
                       {v}
                     </label>
                   ))}
                 </div>
               </fieldset>
               <div className="flex justify-end sm:col-span-2">
-                <SubmitButton>Publish</SubmitButton>
+                <SubmitButton pendingLabel="Publishing">Publish</SubmitButton>
               </div>
             </ActionForm>
           </Dialog>
         }
       />
-      <div className="space-y-4">
-        {items.map((a) => {
-          const scheduled = a.publishAt > now;
-          const readPct = a.recipients ? (a.readCount / a.recipients) * 100 : 0;
-          return (
+      {items.length === 0 ? (
+        <Card>
+          <EmptyState icon={<Megaphone className="size-6" />} title="No announcements yet" />
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {items.map((a) => (
             <Card key={a.id} className="p-5">
               <div className="flex flex-wrap items-start gap-3">
-                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-navy-50 text-navy">
+                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-navy-50 text-heading">
                   <Megaphone className="size-5" />
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="font-semibold text-ink">{a.title}</h2>
                     <Badge tone={PRIORITY[a.priority]}>{a.priority}</Badge>
-                    {scheduled && <Badge tone="violet">scheduled</Badge>}
+                    {!a.published && <Badge tone="violet">scheduled</Badge>}
                   </div>
-                  <p className="mt-1 text-sm text-muted">{a.body}</p>
+                  <p className="mt-1 text-sm whitespace-pre-line text-muted">{a.body}</p>
                   <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted">
-                    {a.departmentId ? <DeptChip code={deptCode(a.departmentId)} soft /> : null}
-                    <span>{AUDIENCE[a.audience]}</span>·<span>{a.channels.map((c) => CHANNEL[c]).join(", ")}</span>·
-                    <span>
-                      {actorName(a.createdBy)} · {formatDateTime(a.publishAt)}
-                    </span>
+                    {code(a.department_id) && <DeptChip code={code(a.department_id)!} soft />}
+                    <span>{AUDIENCE[a.audience]}</span>·<span>{a.channels.map((c) => CHANNEL[c]).join(", ")}</span>·<span>{formatDateTime(a.publish_at)}</span>
                   </div>
                 </div>
-                <div className="w-48 shrink-0">
-                  <div className="mb-1 flex justify-between text-xs">
-                    <span className="text-muted">Read</span>
-                    <span className="font-semibold tabular-nums">
-                      {a.readCount.toLocaleString("en-IN")} / {a.recipients.toLocaleString("en-IN")}
-                    </span>
-                  </div>
-                  <Progress value={readPct} tone="var(--color-primary)" />
+                <div className="shrink-0 text-right text-xs text-muted">
+                  <div className="text-lg font-bold text-heading tabular-nums">{a.recipient_count.toLocaleString("en-IN")}</div>
+                  app recipients
                 </div>
               </div>
             </Card>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
     </>
   );
 }

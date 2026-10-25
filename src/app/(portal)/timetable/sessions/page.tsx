@@ -1,32 +1,30 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { CalendarClock, CircleCheck, Clock, XCircle } from "lucide-react";
-import { addDays, formatTime, istDate } from "@/shared/dates";
+import { addDays, istDate, weekday } from "@/shared/dates";
 import { departmentScope, requirePermission } from "@/lib/auth/permissions";
-import { isWorkingDay } from "@/lib/data/engine";
-import { db } from "@/lib/data/store";
+import { db, unwrap } from "@/lib/db";
 import { param } from "@/lib/utils";
-import { Card, DeptChip, EmptyState, PageHeader, PageSkeleton, StatCard, Table, TD, TH, THead, TR } from "@/components/ui/primitives";
+import { Card, DeptChip, EmptyState, PageHeader, PageSkeleton, Skeleton, StatCard, Table, TD, TH, THead, TR } from "@/components/ui/primitives";
 import { FilterSelect } from "@/components/ui/forms";
-import { registerCounts, sessionRows } from "@/features/attendance/queries";
+import { batchLabel, registerCounts, sessionRows } from "@/features/attendance/queries";
 import { DayStepper, RegisterBadge } from "@/features/attendance/components";
 import { SessionRowActions, StaffOptionsProvider } from "@/features/timetable/session-actions";
 import { departmentOptions } from "@/features/common/lookups";
 
 export const metadata: Metadata = { title: "Session board" };
 
-function nextWorkingDay(from: string) {
-  let d = from;
-  for (let i = 0; i < 30 && !isWorkingDay(d); i++) d = addDays(d, 1);
-  return isWorkingDay(d) ? d : from;
-}
-
 export default function SessionBoardPage(props: PageProps<"/timetable/sessions">) {
   return (
-    <Suspense fallback={<PageSkeleton />}>
+    <Suspense fallback={<PageSkeleton variant="table" />}>
       <SessionBoard searchParams={props.searchParams} />
     </Suspense>
   );
+}
+
+/** Today, or the next weekday when today is Sunday. */
+function defaultDate(today: string) {
+  return weekday(today) === 0 ? addDays(today, 1) : today;
 }
 
 async function SessionBoard({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -35,21 +33,9 @@ async function SessionBoard({ searchParams }: { searchParams: Promise<Record<str
   const scope = departmentScope(user, "sessions.manage");
   const dept = scope ?? param(sp, "dept") ?? null;
   const today = istDate();
-  const date = param(sp, "date") ?? nextWorkingDay(today);
+  const date = param(sp, "date") ?? defaultDate(today);
   const type = param(sp, "type");
-  const all = sessionRows(date, dept);
-  const rows = all.filter((r) => !type || (type === "PR" ? r.component === "PR" : r.component !== "PR")).sort((a, b) => a.start - b.start || a.division.localeCompare(b.division));
-  const c = registerCounts(all);
-  const editable = date >= today;
   const keep: Record<string, string> = Object.fromEntries(Object.entries(sp).flatMap(([k, v]) => (typeof v === "string" && k !== "date" ? [[k, v]] : [])));
-
-  const staffOptions: Record<string, { value: string; label: string }[]> = {};
-  if (editable) {
-    for (const s of db().staff) {
-      if (s.designation === "Lab Assistant" || (dept && s.departmentId !== dept)) continue;
-      (staffOptions[s.departmentId] ??= []).push({ value: s.id, label: s.name });
-    }
-  }
 
   return (
     <>
@@ -59,15 +45,9 @@ async function SessionBoard({ searchParams }: { searchParams: Promise<Record<str
         description="Every session on a day by branch and status. Cancel, substitute or follow up on registers. Cancelled sessions never count as held."
         actions={<DayStepper date={date} basePath="/timetable/sessions" params={keep} />}
       />
-      <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Scheduled" value={c.total} icon={<CalendarClock className="size-5" />} />
-        <StatCard label="Held (register in)" value={c.held + c.reopened} icon={<CircleCheck className="size-5" />} tone="#16a34a" toneBg="#e8f7ee" />
-        <StatCard label="Pending / upcoming" value={c.pending + c.upcoming} icon={<Clock className="size-5" />} tone="#d97706" toneBg="#fff4e0" />
-        <StatCard label="Cancelled" value={c.cancelled} icon={<XCircle className="size-5" />} tone="#475569" toneBg="#eef2f7" />
-      </div>
       <Card className="mb-5 p-4">
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          {!scope && <FilterSelect name="dept" label="Branch" options={departmentOptions()} allLabel="All branches" />}
+          {!scope && <FilterSelect name="dept" label="Branch" options={await departmentOptions()} allLabel="All branches" />}
           <FilterSelect
             name="type"
             label="Session type"
@@ -79,6 +59,35 @@ async function SessionBoard({ searchParams }: { searchParams: Promise<Record<str
           />
         </div>
       </Card>
+      <Suspense key={`${date}-${dept}-${type}`} fallback={<Skeleton className="h-[32rem]" />}>
+        <Board date={date} dept={dept} type={type} editable={date >= today} />
+      </Suspense>
+    </>
+  );
+}
+
+async function Board({ date, dept, type, editable }: { date: string; dept: string | null; type?: string; editable: boolean }) {
+  const [all, c] = await Promise.all([sessionRows(date, dept), registerCounts(date, dept)]);
+  const rows = all.filter((r) => !type || (type === "PR" ? r.component === "PR" : r.component !== "PR"));
+
+  const staffOptions: Record<string, { value: string; label: string }[]> = {};
+  if (editable && rows.length) {
+    const s = await db();
+    let q = s.from("staff_directory").select("id, full_name, home_department_id").eq("status", "active").neq("designation", "Lab Assistant").order("full_name");
+    if (dept) q = q.eq("home_department_id", dept);
+    for (const st of unwrap(await q) as { id: string; full_name: string; home_department_id: string }[]) {
+      (staffOptions[st.home_department_id] ??= []).push({ value: st.id, label: st.full_name });
+    }
+  }
+
+  return (
+    <>
+      <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard label="Scheduled" value={c.total} icon={<CalendarClock className="size-5" />} />
+        <StatCard label="Held (register in)" value={c.held + c.reopened} icon={<CircleCheck className="size-5" />} tone="ok" />
+        <StatCard label="Pending / upcoming" value={c.pending + c.upcoming} icon={<Clock className="size-5" />} tone="warn" />
+        <StatCard label="Cancelled" value={c.cancelled} icon={<XCircle className="size-5" />} tone="slate" />
+      </div>
       <Card>
         {rows.length === 0 ? (
           <EmptyState icon={<CalendarClock className="size-6" />} title="No sessions on this day">
@@ -102,38 +111,38 @@ async function SessionBoard({ searchParams }: { searchParams: Promise<Record<str
                 {rows.map((r) => (
                   <TR key={r.id} className={r.status === "cancelled" ? "opacity-60" : undefined}>
                     <TD className="whitespace-nowrap tabular-nums">
-                      {formatTime(r.start)}
-                      <div className="text-[11px] text-muted">to {formatTime(r.end)}</div>
+                      {r.start_time}
+                      <div className="text-[11px] text-muted">to {r.end_time}</div>
                     </TD>
                     <TD className="whitespace-nowrap">
                       <div className="flex items-center gap-2">
-                        <DeptChip code={r.deptCode} soft />
-                        <span className="font-medium">{r.division}</span>
+                        <DeptChip code={r.department_code} soft />
+                        <span className="font-medium">{r.division_label}</span>
                       </div>
-                      {r.batch && <div className="mt-0.5 text-xs text-muted">{r.batch}</div>}
+                      {r.batch_code && <div className="mt-0.5 text-xs text-muted">{batchLabel(r.batch_code)}</div>}
                     </TD>
                     <TD>
-                      <div className="font-medium">{r.subjectName}</div>
+                      <div className="font-medium">{r.subject_name}</div>
                       <div className="text-[11px] text-muted">
-                        {r.subjectCode} · {r.component === "PR" ? "Practical" : "Theory"}
+                        {r.subject_code} · {r.component === "PR" ? "Practical" : "Theory"}
                       </div>
                     </TD>
                     <TD>
-                      {r.staffName}
-                      {r.substituteName && <div className="text-xs text-violet">Substitute: {r.substituteName}</div>}
+                      {r.staff_name}
+                      {r.substitute_name && <div className="text-xs text-violet">Substitute: {r.substitute_name}</div>}
                     </TD>
-                    <TD className="text-muted">{r.room}</TD>
+                    <TD className="text-muted">{r.room_label}</TD>
                     <TD>
-                      <RegisterBadge row={r} />
-                      {r.cancelReason && <div className="mt-0.5 max-w-48 truncate text-[11px] text-muted">{r.cancelReason}</div>}
+                      <RegisterBadge state={r.display_state} late={r.is_late} />
+                      {r.cancel_reason && <div className="mt-0.5 max-w-48 truncate text-[11px] text-muted">{r.cancel_reason}</div>}
                     </TD>
                     <TD>
-                      {editable && r.status !== "cancelled" && (r.state === "upcoming" || r.state === "pending") && (
+                      {editable && (r.display_state === "upcoming" || r.display_state === "pending") && (
                         <SessionRowActions
                           sessionId={r.id}
-                          departmentId={r.departmentId}
-                          staffId={r.staffId}
-                          title={`${r.division}${r.batch ? ` ${r.batch}` : ""} · ${r.subjectName} · ${formatTime(r.start)}`}
+                          departmentId={r.department_id}
+                          staffId={r.staff_id}
+                          title={`${r.division_label}${r.batch_code ? ` · Batch ${r.batch_code}` : ""} · ${r.subject_name} · ${r.start_time}`}
                         />
                       )}
                     </TD>

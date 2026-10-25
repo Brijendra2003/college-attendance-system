@@ -134,6 +134,12 @@ body {
   color: var(--ink);
 }
 
+/* Grid items default to min-width:auto, which lets wide content (charts,
+   tables, long names) stretch a column past the viewport on phones. */
+.grid > * {
+  min-width: 0;
+}
+
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;

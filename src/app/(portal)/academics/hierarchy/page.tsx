@@ -1,16 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
-import { ArrowDown, ArrowRight, BookOpen, Building, CalendarDays, CircleCheck, CircleAlert, GraduationCap, UserRound, UsersRound } from "lucide-react";
-import { departmentTones } from "@/shared/tokens";
+import { ArrowDown, ArrowRight, BookOpen, Building, CalendarDays, CircleAlert, CircleCheck, GraduationCap, UserRound, UsersRound } from "lucide-react";
 import { requirePermission } from "@/lib/auth/permissions";
-import { db } from "@/lib/data/store";
 import { param } from "@/lib/utils";
-import { PROGRAM_YEARS } from "@/lib/data/catalogue";
-import { Card, CardBody, CardHeader, DeptChip, PageHeader, PageSkeleton, Table, TD, TH, THead, TR, YearChip } from "@/components/ui/primitives";
+import { Card, CardBody, CardHeader, DeptChip, ld, PageSkeleton, PageHeader, Table, TD, TH, THead, toneStyle, TR, YearChip } from "@/components/ui/primitives";
 import { FilterSelect } from "@/components/ui/forms";
-import { departmentCards, divisionRows, programYearSummary, ruleChecks } from "@/features/academics/queries";
-import { PROGRAM_YEAR_OPTIONS } from "@/features/common/lookups";
+import { departmentCards, setupHealth } from "@/features/academics/queries";
+import { getActiveContext, getCollege, getDivisions, PROGRAM_YEAR_OPTIONS } from "@/features/common/lookups";
 
 export const metadata: Metadata = { title: "Academic hierarchy" };
 
@@ -22,30 +19,41 @@ export default function HierarchyPage(props: PageProps<"/academics/hierarchy">) 
   );
 }
 
+const PROGRAM_YEARS = [
+  { code: "FE", name: "First Year Engineering", semesters: [1, 2] },
+  { code: "SE", name: "Second Year Engineering", semesters: [3, 4] },
+  { code: "TE", name: "Third Year Engineering", semesters: [5, 6] },
+  { code: "BE", name: "Final Year Engineering", semesters: [7, 8] },
+];
 const RULE_COLORS = ["#1d5fd1", "#1b8f45", "#d96c0c", "#6d3fd6", "#1d4ed8", "#d96c0c", "#1b8f45"];
 
 async function Hierarchy({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   await requirePermission("blueprint.view");
   const sp = await searchParams;
-  const store = db();
-  const depts = departmentCards(null);
-  const year = store.academicYears.find((y) => y.status === "active")!;
-  const pySummary = programYearSummary();
-  const exDept = param(sp, "dept") ?? "dep-aiml";
+  const [college, { year }, depts, allDivisions, health] = await Promise.all([getCollege(), getActiveContext(), departmentCards(null), getDivisions(), setupHealth()]);
+  const exDept = param(sp, "dept") ?? depts.find((d) => d.code === "AIML")?.id ?? depts[0]?.id;
   const exYear = param(sp, "py") ?? "SE";
-  const exDivisions = divisionRows(exDept, exYear);
-  const exDeptCode = depts.find((d) => d.id === exDept)?.code ?? "AIML";
-  const rules = ruleChecks();
+  const exDivisions = allDivisions.filter((d) => d.department_id === exDept && d.program_year === exYear);
+  const exDeptCode = depts.find((d) => d.id === exDept)?.code ?? "";
+
+  const rules = [
+    { n: 1, rule: "Each department has a configurable HOD assignment with an effective date.", ok: !health.departments_without_hod, detail: health.departments_without_hod ? `${health.departments_without_hod} without HOD` : `${depts.length} of ${depts.length} assigned` },
+    { n: 2, rule: "Each division belongs to a specific department, program year and academic year.", ok: true, detail: `${health.divisions} divisions in ${year?.label ?? "the active year"}` },
+    { n: 3, rule: "Each batch belongs to a division or an explicitly defined practical group.", ok: true, detail: `${health.batches} batches linked` },
+    { n: 4, rule: "Each student has one valid primary enrollment for the academic year.", ok: !health.students_without_enrollment, detail: `${health.active_students - health.students_without_enrollment} of ${health.active_students} enrolled` },
+    { n: 5, rule: "Division-wide theory lectures and batch-specific practical sessions.", ok: true, detail: `${health.theory_groups} theory · ${health.practical_groups} practical groups` },
+    { n: 6, rule: "Progression updates enrollment instead of duplicating the student.", ok: true, detail: `${health.closed_enrollments} closed enrollments kept` },
+    { n: 7, rule: "Division, batch and lecturer changes keep historical attendance.", ok: true, detail: "Records snapshot division & batch" },
+  ];
 
   return (
     <>
       <PageHeader
         eyebrow="Academics"
         title="Academic hierarchy"
-        description="From the Principal to practical batches. The structure is data: branches, years, divisions and batches are rows the college can change without code changes."
+        description="From the Principal to practical batches. The structure is data: branches, years, divisions and batches are rows the college changes in the blueprint editor, without code changes."
       />
 
-      {/* 1. Hierarchy */}
       <Card className="mb-6">
         <CardHeader number={1} title="Academic hierarchy" description="From Principal to batches" />
         <CardBody>
@@ -56,56 +64,52 @@ async function Hierarchy({ searchParams }: { searchParams: Promise<Record<string
               </span>
               <div>
                 <div className="text-lg font-bold">Principal</div>
-                <div className="text-sm text-blue-100/85">{store.college.principalName} · Head of the college</div>
+                <div className="text-sm text-blue-100/85">{college.principal_name ?? "Head of the college"} · Head of the college</div>
               </div>
             </div>
-            <ArrowDown className="my-1.5 size-5 text-navy" />
-            <div className="flex w-full items-center justify-center gap-3 rounded-xl border border-[#b9d2f3] bg-[#eaf3ff] px-5 py-3">
-              <Building className="size-6 text-navy" />
+            <ArrowDown className="my-1.5 size-5 text-heading" />
+            <div className="flex w-full items-center justify-center gap-3 rounded-xl border px-5 py-3" style={{ background: ld("#eaf3ff", "#13233f"), borderColor: ld("#b9d2f3", "#284a80") }}>
+              <Building className="size-6 text-heading" />
               <div>
-                <div className="font-bold text-navy">Engineering branches / departments</div>
+                <div className="font-bold text-heading">Engineering branches / departments</div>
                 <div className="text-xs text-muted">Each department is managed by its HOD</div>
               </div>
             </div>
             <div className="mt-3 grid w-full grid-cols-2 gap-2.5 sm:grid-cols-4 lg:grid-cols-6 2xl:grid-cols-12">
-              {depts.map((d) => {
-                const t = departmentTones[d.code];
-                return (
-                  <Link
-                    key={d.id}
-                    href={`/academics/departments#${d.code}`}
-                    className="flex flex-col rounded-xl border p-2.5 text-center transition hover:-translate-y-0.5 hover:shadow-pop"
-                    style={{ background: t.bg, borderColor: t.border }}
-                  >
-                    <span className="text-sm font-bold" style={{ color: t.fg }}>
-                      {d.code}
-                    </span>
-                    <span className="mt-0.5 line-clamp-2 min-h-8 text-[10.5px] leading-tight text-muted">{d.name}</span>
-                    <span className="mt-2 flex items-center justify-center gap-1 text-[10.5px] font-medium text-ink">
-                      <UserRound className="size-3" style={{ color: t.fg }} /> HOD – {d.code}
-                    </span>
-                  </Link>
-                );
-              })}
+              {depts.map((d) => (
+                <Link
+                  key={d.id}
+                  href={`/academics/departments#${d.code}`}
+                  className="flex flex-col rounded-xl border p-2.5 text-center transition hover:-translate-y-0.5 hover:shadow-pop"
+                  style={toneStyle(d.code)}
+                >
+                  <span className="text-sm font-bold" style={toneStyle(d.code, "text")}>
+                    {d.code}
+                  </span>
+                  <span className="mt-0.5 line-clamp-2 min-h-8 text-[10.5px] leading-tight text-muted">{d.name}</span>
+                  <span className="mt-2 flex items-center justify-center gap-1 text-[10.5px] font-medium text-ink">
+                    <UserRound className="size-3" style={toneStyle(d.code, "text")} /> HOD – {d.code}
+                  </span>
+                </Link>
+              ))}
             </div>
-            <ArrowDown className="my-2 size-5 text-navy" />
+            <ArrowDown className="my-2 size-5 text-heading" />
             <div className="grid w-full grid-cols-1 items-stretch gap-2 md:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr_auto_1fr]">
-              <FlowBox icon={<GraduationCap className="size-7" />} title="Academic year" sub={`${year.label} (active)`} color="#1b8f45" bg="#e9f8ee" border="#a6dcb7" />
+              <FlowBox icon={<GraduationCap className="size-7" />} title="Academic year" sub={`${year?.label ?? "—"} (active)`} tone="CIVIL" />
               <FlowArrow />
-              <FlowBox icon={<BookOpen className="size-7" />} title="Program year" sub="FE / SE / TE / BE (1st–4th year)" color="#1d5fd1" bg="#eaf2ff" border="#a9c8f5" />
+              <FlowBox icon={<BookOpen className="size-7" />} title="Program year" sub="FE / SE / TE / BE (1st–4th year)" tone="COMP" />
               <FlowArrow />
-              <FlowBox icon={<CalendarDays className="size-7" />} title="Semester" sub="1–8 · odd term: 1, 3, 5, 7" color="#6d3fd6" bg="#f2edff" border="#c9b8f2" />
+              <FlowBox icon={<CalendarDays className="size-7" />} title="Semester" sub="1–8 · two per year" tone="CSE" />
               <FlowArrow />
-              <FlowBox icon={<UsersRound className="size-7" />} title="Division" sub="A, B, C …" color="#d96c0c" bg="#fff3e3" border="#f5c98f" />
+              <FlowBox icon={<UsersRound className="size-7" />} title="Division" sub="A, B, C …" tone="AIML" />
               <FlowArrow />
-              <FlowBox icon={<UsersRound className="size-7" />} title="Batches" sub="Div A – Batch 1, 2, 3 …" color="#0e8a7e" bg="#e5f6f3" border="#9fd9cf" />
+              <FlowBox icon={<UsersRound className="size-7" />} title="Batches" sub="Div A – Batch 1, 2, 3 …" tone="IT" />
             </div>
           </div>
         </CardBody>
       </Card>
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_1fr]">
-        {/* 2. Branches */}
         <Card>
           <CardHeader number={2} title="Engineering branches / departments" />
           <Table>
@@ -124,7 +128,7 @@ async function Hierarchy({ searchParams }: { searchParams: Promise<Record<string
                     <DeptChip code={d.code} />
                   </TD>
                   <TD className="font-medium">{d.name}</TD>
-                  <TD className="text-muted">{d.hod?.staff.name ?? "—"}</TD>
+                  <TD className="text-muted">{d.hod?.name ?? "—"}</TD>
                   <TD className="text-right tabular-nums">{d.students.toLocaleString("en-IN")}</TD>
                 </TR>
               ))}
@@ -133,9 +137,8 @@ async function Hierarchy({ searchParams }: { searchParams: Promise<Record<string
         </Card>
 
         <div className="space-y-6">
-          {/* 3. Years & semesters */}
           <Card>
-            <CardHeader number={3} title="Academic year & semester structure" description={`Academic year ${year.label}`} />
+            <CardHeader number={3} title="Academic year & semester structure" description={`Academic year ${year?.label ?? "—"}`} />
             <Table>
               <THead>
                 <tr>
@@ -148,7 +151,7 @@ async function Hierarchy({ searchParams }: { searchParams: Promise<Record<string
               </THead>
               <tbody>
                 {PROGRAM_YEARS.map((py) => {
-                  const s = pySummary.find((x) => x.code === py.code)!;
+                  const divs = allDivisions.filter((d) => d.program_year === py.code);
                   return (
                     <TR key={py.code}>
                       <TD>
@@ -158,19 +161,16 @@ async function Hierarchy({ searchParams }: { searchParams: Promise<Record<string
                       <TD>
                         Sem {py.semesters[0]}, Sem {py.semesters[1]}
                       </TD>
-                      <TD className="text-right tabular-nums">{s.divisions}</TD>
-                      <TD className="text-right tabular-nums">{s.students.toLocaleString("en-IN")}</TD>
+                      <TD className="text-right tabular-nums">{divs.length}</TD>
+                      <TD className="text-right tabular-nums">{divs.reduce((a, d) => a + Number(d.students), 0).toLocaleString("en-IN")}</TD>
                     </TR>
                   );
                 })}
               </tbody>
             </Table>
-            <p className="px-5 py-3 text-xs text-muted italic">
-              Each branch may have divisions for each year. The number of divisions can vary by intake and available capacity.
-            </p>
+            <p className="px-5 py-3 text-xs text-muted italic">Each branch may have divisions for each year. The number of divisions can vary by intake and available capacity.</p>
           </Card>
 
-          {/* 4. Division & batches example */}
           <Card>
             <CardHeader number={4} title="Division & batch structure" description="Pick a branch and year" />
             <CardBody>
@@ -178,22 +178,22 @@ async function Hierarchy({ searchParams }: { searchParams: Promise<Record<string
                 <FilterSelect name="dept" label="Branch" allLabel={null} fallback={exDept} options={depts.map((d) => ({ value: d.id, label: d.code }))} />
                 <FilterSelect name="py" label="Year" allLabel={null} fallback={exYear} options={PROGRAM_YEAR_OPTIONS} />
               </div>
-              <div className="mb-3 flex items-center gap-2 rounded-lg bg-navy-50 px-3 py-2 text-xs font-semibold text-navy">
+              <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-navy-50 px-3 py-2 text-xs font-semibold text-heading">
                 {exDeptCode} department <span className="text-faint">|</span> {exYear} ({PROGRAM_YEARS.find((p) => p.code === exYear)?.name})
-                <span className="text-faint">|</span> Academic year {year.label}
+                <span className="text-faint">|</span> Academic year {year?.label}
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 {exDivisions.map((d, i) => {
-                  const tone = i % 2 === 0 ? { fg: "#1d5fd1", bg: "#eaf2ff", border: "#a9c8f5" } : { fg: "#6d3fd6", bg: "#f2edff", border: "#c9b8f2" };
+                  const tone = i % 2 === 0 ? "COMP" : "CSE";
                   return (
-                    <div key={d.id} className="overflow-hidden rounded-xl border" style={{ borderColor: tone.border }}>
-                      <div className="px-3 py-2 text-center text-sm font-bold" style={{ background: tone.bg, color: tone.fg }}>
+                    <div key={d.id} className="overflow-hidden rounded-xl border" style={toneStyle(tone)}>
+                      <div className="px-3 py-2 text-center text-sm font-bold" style={toneStyle(tone, "text")}>
                         Division {d.code} · {d.students} students
                       </div>
-                      <ul className="divide-y divide-line-soft bg-white">
-                        {d.batches.map((b) => (
+                      <ul className="divide-y divide-line-soft bg-surface">
+                        {(d.batches ?? []).map((b) => (
                           <li key={b.id} className="flex items-center gap-2 px-3 py-2 text-sm">
-                            <UsersRound className="size-4" style={{ color: tone.fg }} /> Batch {b.code}
+                            <UsersRound className="size-4" style={toneStyle(tone, "text")} /> Batch {b.code}
                             <span className="ml-auto text-xs text-muted tabular-nums">{b.students}</span>
                           </li>
                         ))}
@@ -201,6 +201,7 @@ async function Hierarchy({ searchParams }: { searchParams: Promise<Record<string
                     </div>
                   );
                 })}
+                {exDivisions.length === 0 && <p className="text-sm text-muted">No divisions for this branch and year.</p>}
               </div>
               <p className="mt-3 text-xs text-muted italic">
                 Batch and division counts are configured per department and academic year. Batches are used for practicals, labs and tutorials.
@@ -210,7 +211,6 @@ async function Hierarchy({ searchParams }: { searchParams: Promise<Record<string
         </div>
       </div>
 
-      {/* 5. Rules */}
       <Card className="mt-6">
         <CardHeader number={5} title="Key rules / business logic" description="Checked live against the data" />
         <CardBody className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">
@@ -234,12 +234,12 @@ async function Hierarchy({ searchParams }: { searchParams: Promise<Record<string
   );
 }
 
-function FlowBox({ icon, title, sub, color, bg, border }: { icon: React.ReactNode; title: string; sub: string; color: string; bg: string; border: string }) {
+function FlowBox({ icon, title, sub, tone }: { icon: React.ReactNode; title: string; sub: string; tone: string }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border px-4 py-3" style={{ background: bg, borderColor: border }}>
-      <span style={{ color }}>{icon}</span>
+    <div className="flex items-center gap-3 rounded-xl border px-4 py-3" style={toneStyle(tone)}>
+      <span style={toneStyle(tone, "text")}>{icon}</span>
       <div className="min-w-0">
-        <div className="font-bold text-navy">{title}</div>
+        <div className="font-bold text-heading">{title}</div>
         <div className="text-xs text-muted">{sub}</div>
       </div>
     </div>
@@ -249,7 +249,7 @@ function FlowBox({ icon, title, sub, color, bg, border }: { icon: React.ReactNod
 function FlowArrow() {
   return (
     <div className="hidden items-center justify-center md:flex">
-      <ArrowRight className="size-5 text-navy" />
+      <ArrowRight className="size-5 text-heading" />
     </div>
   );
 }

@@ -1,97 +1,90 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { CalendarDays, Clock, GraduationCap } from "lucide-react";
-import { diffDays, formatDate, formatTime, istDate } from "@/shared/dates";
+import { diffDays, formatDate, istDate } from "@/shared/dates";
 import { requirePermission } from "@/lib/auth/permissions";
-import { db } from "@/lib/data/store";
-import { workingDays } from "@/lib/data/engine";
-import { PERIODS } from "@/lib/data/catalogue";
-import { Badge, Card, CardBody, CardHeader, PageHeader, PageSkeleton, Table, TD, TH, THead, TR } from "@/components/ui/primitives";
+import { Badge, Card, CardBody, CardHeader, EmptyState, PageHeader, PageSkeleton, Table, TD, TH, THead, TR } from "@/components/ui/primitives";
+import { calendarEvents, periodTemplate } from "@/features/academics/queries";
+import { getActiveContext, getPolicy } from "@/features/common/lookups";
 
-export const metadata: Metadata = { title: "Years & calendar" };
+export const metadata: Metadata = { title: "Academic calendar" };
 
 export default function CalendarPage() {
   return (
-    <Suspense fallback={<PageSkeleton />}>
+    <Suspense fallback={<PageSkeleton variant="detail" />}>
       <AcademicCalendar />
     </Suspense>
   );
 }
 
 const KIND_TONE = { holiday: "bad", exam: "violet", event: "info", working_override: "ok" } as const;
+const ORDINAL = ["", "1st", "2nd", "3rd", "4th", "5th"];
 
 async function AcademicCalendar() {
   await requirePermission("blueprint.view");
-  const store = db();
+  const [{ terms }, events, template, policy] = await Promise.all([getActiveContext(), calendarEvents(), periodTemplate(), getPolicy()]);
   const today = istDate();
 
   return (
     <>
       <PageHeader
         eyebrow="Academics"
-        title="Academic years & calendar"
-        description="Years and terms, daily period template and holidays. Session generation and “sessions remaining” both read this calendar."
+        title="Academic calendar"
+        description="Terms, the daily period template and holidays. Session generation and “sessions remaining” both read this calendar."
       />
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="space-y-6 xl:col-span-2">
           <Card>
-            <CardHeader icon={<GraduationCap className="size-5" />} title="Academic years & terms" description="Odd terms run July–November, even terms January–May." />
+            <CardHeader icon={<GraduationCap className="size-5" />} title="Terms" description="Odd terms run July–November, even terms January–May." />
             <Table>
               <THead>
                 <tr>
                   <TH>Term</TH>
                   <TH>Semesters</TH>
                   <TH>Dates</TH>
-                  <TH className="text-right">Teaching days</TH>
                   <TH>Status</TH>
                 </tr>
               </THead>
               <tbody>
-                {store.terms
-                  .slice()
-                  .reverse()
-                  .map((t) => (
-                    <TR key={t.id}>
-                      <TD className="font-medium">{t.label}</TD>
-                      <TD>{t.parity === "odd" ? "1, 3, 5, 7" : "2, 4, 6, 8"}</TD>
-                      <TD className="text-muted">
-                        {formatDate(t.startDate, { year: true })} – {formatDate(t.endDate, { year: true })}
-                      </TD>
-                      <TD className="text-right tabular-nums">{t.status === "active" ? workingDays(t.startDate, t.endDate).length : "—"}</TD>
-                      <TD>
-                        <Badge tone={t.status === "active" ? "ok" : t.status === "planned" ? "info" : "neutral"}>{t.status}</Badge>
-                      </TD>
-                    </TR>
-                  ))}
+                {[...terms].reverse().map((t) => (
+                  <TR key={t.id}>
+                    <TD className="font-medium">{t.label}</TD>
+                    <TD>{t.parity === "odd" ? "1, 3, 5, 7" : "2, 4, 6, 8"}</TD>
+                    <TD className="text-muted">
+                      {formatDate(t.start_date, { year: true })} – {formatDate(t.end_date, { year: true })}
+                    </TD>
+                    <TD>
+                      <Badge tone={t.status === "active" ? "ok" : t.status === "planned" ? "info" : "neutral"}>{t.status}</Badge>
+                    </TD>
+                  </TR>
+                ))}
               </tbody>
             </Table>
-            <p className="border-t border-line-soft px-5 py-3 text-xs text-muted">
-              Archived years are read-only. Year rollover clones the active blueprint into new divisions and batches, then promotes students
-              by closing old enrollments and opening new ones.
-            </p>
           </Card>
 
           <Card>
-            <CardHeader icon={<CalendarDays className="size-5" />} title="Holidays, exams & events" description="2026-27 odd term" />
-            <ul className="divide-y divide-line-soft">
-              {store.calendar
-                .slice()
-                .sort((a, b) => a.date.localeCompare(b.date))
-                .map((e) => {
-                  const past = (e.endDate ?? e.date) < today;
+            <CardHeader icon={<CalendarDays className="size-5" />} title="Holidays, exams & events" />
+            {events.length === 0 ? (
+              <EmptyState title="No calendar events yet" />
+            ) : (
+              <ul className="divide-y divide-line-soft">
+                {events.map((e) => {
+                  const past = e.ends_on < today;
+                  const inDays = diffDays(e.starts_on, today);
                   return (
                     <li key={e.id} className={`flex items-center gap-4 px-5 py-3 ${past ? "opacity-60" : ""}`}>
-                      <div className="w-28 shrink-0 text-sm font-semibold text-navy tabular-nums">
-                        {formatDate(e.date)}
-                        {e.endDate && ` – ${formatDate(e.endDate)}`}
+                      <div className="w-32 shrink-0 text-sm font-semibold text-heading tabular-nums">
+                        {formatDate(e.starts_on)}
+                        {e.ends_on !== e.starts_on && ` – ${formatDate(e.ends_on)}`}
                       </div>
                       <div className="flex-1 text-sm">{e.title}</div>
-                      {!past && diffDays(e.date, today) <= 14 && diffDays(e.date, today) >= 0 && <Badge tone="warn">in {diffDays(e.date, today)} days</Badge>}
+                      {!past && inDays >= 0 && inDays <= 14 && <Badge tone="warn">in {inDays} days</Badge>}
                       <Badge tone={KIND_TONE[e.kind]}>{e.kind.replace("_", " ")}</Badge>
                     </li>
                   );
                 })}
-            </ul>
+              </ul>
+            )}
           </Card>
         </div>
 
@@ -99,15 +92,15 @@ async function AcademicCalendar() {
           <Card>
             <CardHeader icon={<Clock className="size-5" />} title="Period template" description="Monday to Friday" />
             <ul className="divide-y divide-line-soft">
-              {PERIODS.map((p) => (
-                <li key={p.start} className={`flex items-center gap-3 px-5 py-2.5 text-sm ${p.kind === "break" ? "bg-[#f8fafd] text-muted" : ""}`}>
-                  <span className="w-14 font-semibold text-navy">{p.label}</span>
+              {template.periods.map((p) => (
+                <li key={p.start} className={`flex items-center gap-3 px-5 py-2.5 text-sm ${p.kind === "break" ? "bg-subtle text-muted" : ""}`}>
+                  <span className="w-20 font-semibold text-heading">{p.label}</span>
                   <span className="tabular-nums">
-                    {formatTime(p.start)} – {formatTime(p.end)}
+                    {p.start} – {p.end}
                   </span>
                   {p.kind === "practical" && (
                     <Badge tone="ok" className="ml-auto">
-                      2-hour practical
+                      practical block
                     </Badge>
                   )}
                 </li>
@@ -118,12 +111,12 @@ async function AcademicCalendar() {
             <CardHeader title="Working pattern" />
             <CardBody className="space-y-2 text-sm">
               <p>
-                <b>Saturdays:</b> 1st and 3rd are working days for extra and remedial lectures only; no regular timetable.
+                <b>Saturdays:</b>{" "}
+                {template.working_saturdays.length ? `${template.working_saturdays.map((n) => ORDINAL[n]).join(" and ")} are working days.` : "not working days."}
               </p>
               <p>
-                <b>Lecture:</b> 60 minutes. <b>Practical:</b> 120 minutes, counted as one session (<code>count_mode = session</code>).
+                <b>Counting:</b> {policy.count_mode === "session" ? "a 2-hour practical counts as one session" : "attendance is weighted by session hours"}.
               </p>
-              <p className="text-xs text-muted">These are decisions to confirm with the college (architecture §23, items 2 and 8).</p>
             </CardBody>
           </Card>
         </div>

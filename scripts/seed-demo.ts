@@ -192,7 +192,8 @@ async function main() {
           status: "published", effective_from: TERM.start, published_at: new Date(`${TERM.start}T05:30:00Z`).toISOString() });
         for (const div of pyDivs) {
           const k = deptDivs.indexOf(div);
-          const room = `${String.fromCharCode(65 + (departments.indexOf(d) % 4))}-${["FE", "SE", "TE", "BE"].indexOf(py) + 1}${String(k + 1).padStart(2, "0")}`;
+          // One room per division, numbered per department (floor = year), so rooms never clash across branches.
+          const room = `${d.code}-${["FE", "SE", "TE", "BE"].indexOf(py) + 1}${String(k + 1).padStart(2, "0")}`;
           await tx`update public.divisions set room_label = ${room} where id = ${div.id}`;
           const offset = Math.floor(rng() * 5);
 

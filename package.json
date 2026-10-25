@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "dev:supabase": "tsx scripts/dev/local-supabase.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",
     "bootstrap:admin": "tsx scripts/bootstrap-admin.ts"
   },

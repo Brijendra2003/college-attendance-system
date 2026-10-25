@@ -1,34 +1,55 @@
 import { istDate } from "@/shared/dates";
-import { getCurrentUser } from "@/lib/auth/session";
-import { can, departmentScope } from "@/lib/auth/permissions";
-import { audit } from "@/lib/data/store";
-import { REPORTS } from "@/features/reports/catalogue";
-import { toCsv } from "@/features/imports/csv";
+import { getCurrentUser, needsMfa } from "@/lib/auth/session";
+import { can } from "@/lib/auth/permissions";
+import { rpc } from "@/lib/db";
+import { reportByKey, type Format, type ReportData } from "@/features/reports/catalogue";
+import { buildMuster } from "@/features/reports/muster";
+import { renderCsv, renderXlsx } from "@/features/reports/render";
+import { renderPdf } from "@/features/reports/pdf";
+import { getCollege } from "@/features/common/lookups";
 
-// CSV export (§11.13). Exports of personal data are audited (§17).
+const TYPES: Record<Format, string> = {
+  csv: "text/csv; charset=utf-8",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pdf: "application/pdf",
+};
+
+// Exports (§11.13). Every export of personal data is audited (§17); RLS
+// scopes the rows to the caller, so an HOD only ever exports their department.
 export async function GET(request: Request, ctx: RouteContext<"/api/reports/[key]">) {
   const user = await getCurrentUser();
-  if (!user || !can(user, "reports.export")) return new Response("Forbidden", { status: 403 });
+  if (!user || needsMfa(user) || !can(user, "reports.export")) return new Response("Forbidden", { status: 403 });
   const { key } = await ctx.params;
-  const report = REPORTS.find((r) => r.key === key);
-  if (!report) return new Response("Unknown report", { status: 404 });
+  const params = Object.fromEntries(new URL(request.url).searchParams);
+  const format = (["csv", "xlsx", "pdf"].includes(params.format) ? params.format : "csv") as Format;
 
-  const filters = Object.fromEntries(new URL(request.url).searchParams);
-  const scope = departmentScope(user, "reports.export");
-  const rows = report.build(scope, filters);
-  audit(user, {
-    action: "report.exported",
-    entity: "reports",
-    entityId: key,
-    summary: `Exported ${report.title} (${rows.length - 1} rows)`,
-    before: null,
-    after: { filters, scope: scope ?? "all" },
-    reason: null,
-  });
-  return new Response(`﻿${toCsv(rows)}\r\n`, {
+  let data: ReportData;
+  try {
+    if (key === "muster") data = await buildMuster(params);
+    else {
+      const def = reportByKey(key);
+      if (!def) return new Response("Unknown report", { status: 404 });
+      if (!def.formats.includes(format)) return new Response(`This report isn't available as ${format.toUpperCase()}`, { status: 400 });
+      data = await def.build(params);
+    }
+  } catch (e) {
+    return new Response(e instanceof Error ? e.message : "Report failed", { status: 400 });
+  }
+
+  const college = (await getCollege()).name;
+  const body: BodyInit =
+    format === "csv"
+      ? renderCsv(data)
+      : format === "xlsx"
+        ? await renderXlsx(data, college)
+        : Buffer.from(await renderPdf(data, college, { signatures: key === "muster" }));
+
+  // Audit before handing over the file; if the audit write fails, so does the export.
+  await rpc("log_export", { p_report: key, p_format: format, p_rows: data.rows.length, p_filters: params });
+  return new Response(body, {
     headers: {
-      "content-type": "text/csv; charset=utf-8",
-      "content-disposition": `attachment; filename="${key}_${istDate()}.csv"`,
+      "content-type": TYPES[format],
+      "content-disposition": `attachment; filename="${key}_${istDate()}.${format}"`,
       "cache-control": "no-store",
     },
   });

@@ -1,32 +1,25 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { Building, GraduationCap, Layers, UsersRound } from "lucide-react";
-import { db } from "@/lib/data/store";
-import { departmentTones } from "@/shared/tokens";
 import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = { title: "Sign in" };
 
-async function demoAccounts() {
-  "use cache";
-  const store = db();
-  return store.profiles.map((p) => {
-    const hodDept = p.staffId ? store.departments.find((d) => d.id === store.staff.find((s) => s.id === p.staffId)?.departmentId) : undefined;
-    return {
-      email: p.email,
-      name: p.name,
-      role: hodDept ? `HOD · ${hodDept.code}` : { principal: "Principal", admin: "Admin", operations: "Operations", exam_cell: "Exam Cell" }[p.roles[0] as string] ?? p.roles[0],
-      tone: hodDept ? departmentTones[hodDept.code].fg : "#163a70",
-    };
-  });
-}
+// Shown only when NEXT_PUBLIC_SHOW_DEMO_LOGINS=1 (local / staging demo data).
+const DEMO_ACCOUNTS = [
+  { email: "principal@sjcem.edu.in", role: "Principal", note: "MFA required" },
+  { email: "admin@sjcem.edu.in", role: "Admin", note: "MFA required" },
+  { email: "operations@sjcem.edu.in", role: "Operations", note: "" },
+  { email: "examcell@sjcem.edu.in", role: "Exam Cell", note: "" },
+];
 
-export default async function LoginPage() {
-  const accounts = await demoAccounts();
+export default function LoginPage(props: PageProps<"/login">) {
+  const demo = process.env.NEXT_PUBLIC_SHOW_DEMO_LOGINS === "1" ? DEMO_ACCOUNTS : [];
   return (
     <div className="grid min-h-screen lg:grid-cols-[1.05fr_1fr]">
-      <div className="relative hidden overflow-hidden bg-gradient-to-br from-navy to-navy-700 p-12 text-white lg:flex lg:flex-col">
+      <div className="relative hidden overflow-hidden bg-gradient-to-br from-[#163a70] to-[#0f2c58] p-12 text-white lg:flex lg:flex-col">
         <div className="flex items-center gap-3">
-          <span className="grid size-11 place-items-center rounded-xl bg-white text-navy">
+          <span className="grid size-11 place-items-center rounded-xl bg-white text-[#163a70]">
             <GraduationCap className="size-6" />
           </span>
           <div>
@@ -37,8 +30,8 @@ export default async function LoginPage() {
         <div className="mt-auto max-w-lg">
           <h1 className="text-4xl leading-tight font-bold">Attendance, from Principal to every practical batch.</h1>
           <p className="mt-4 text-blue-100/85">
-            One place for the academic hierarchy, timetables, registers, corrections, shortage lists and reports. Professors, students and
-            parents use the mobile app.
+            One place for the academic hierarchy, timetables, registers, corrections, shortage lists and reports. Professors, students and parents use the
+            mobile app.
           </p>
           <div className="mt-8 grid grid-cols-3 gap-3 text-sm">
             {[
@@ -59,9 +52,11 @@ export default async function LoginPage() {
 
       <div className="flex items-center justify-center p-6">
         <div className="w-full max-w-md">
-          <h2 className="text-2xl font-bold text-navy">Sign in</h2>
-          <p className="mt-1 text-sm text-muted">Web access for Principal, Admin, Operations, Exam Cell and HODs.</p>
-          <LoginForm accounts={accounts} />
+          <h2 className="text-2xl font-bold text-heading">Sign in</h2>
+          <p className="mt-1 text-sm text-muted">Web access for Principal, Admin, Operations, Exam Cell and HODs. Accounts are created by the college.</p>
+          <Suspense>
+            <LoginForm demo={demo} searchParams={props.searchParams} />
+          </Suspense>
         </div>
       </div>
     </div>

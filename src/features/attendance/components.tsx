@@ -1,47 +1,48 @@
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { addDays, formatDate } from "@/shared/dates";
-import { Badge, buttonClass } from "@/components/ui/primitives";
-import { isWorkingDay } from "@/lib/data/engine";
-import type { SessionRow } from "./queries";
+import { addDays, formatDate, weekday } from "@/shared/dates";
+import { Badge, buttonClass, type BadgeTone } from "@/components/ui/primitives";
+import type { DisplayState } from "./queries";
 
-const STATE: Record<string, { label: string; tone: "ok" | "warn" | "bad" | "neutral" | "violet" | "info" }> = {
+const STATE: Record<DisplayState, { label: string; tone: BadgeTone }> = {
   submitted: { label: "Submitted", tone: "ok" },
-  locked: { label: "Locked", tone: "neutral" },
   pending: { label: "Pending", tone: "warn" },
   missing: { label: "Missing", tone: "bad" },
   upcoming: { label: "Upcoming", tone: "info" },
   reopened: { label: "Reopened", tone: "violet" },
   voided: { label: "Voided", tone: "neutral" },
+  cancelled: { label: "Cancelled", tone: "neutral" },
 };
 
-export function RegisterBadge({ row }: { row: Pick<SessionRow, "status" | "state" | "late"> }) {
-  if (row.status === "cancelled") return <Badge tone="neutral">Cancelled</Badge>;
-  const s = row.state ? STATE[row.state] : STATE.upcoming;
+export function RegisterBadge({ state, late, locked }: { state: DisplayState; late?: boolean | null; locked?: boolean }) {
+  const s = STATE[state];
   return (
     <span className="inline-flex gap-1">
       <Badge tone={s.tone}>{s.label}</Badge>
-      {row.late && <Badge tone="warn">late</Badge>}
+      {locked && state === "submitted" && <Badge>locked</Badge>}
+      {late && state === "submitted" && <Badge tone="warn">late</Badge>}
     </span>
   );
 }
 
+/** Previous / next weekday (Mon–Sat), preserving other query params. */
 function step(date: string, dir: 1 | -1) {
   let d = addDays(date, dir);
-  for (let i = 0; i < 14 && !isWorkingDay(d); i++) d = addDays(d, dir);
+  while (weekday(d) === 0) d = addDays(d, dir);
   return d;
 }
 
-/** Previous / next working day, preserving other query params. */
 export function DayStepper({ date, basePath, params }: { date: string; basePath: string; params: Record<string, string> }) {
   const href = (d: string) => `${basePath}?${new URLSearchParams({ ...params, date: d })}`;
   return (
     <div className="flex items-center gap-1.5">
-      <Link href={href(step(date, -1))} className={buttonClass("secondary", "sm")} aria-label="Previous working day">
+      <Link href={href(step(date, -1))} className={buttonClass("secondary", "sm")} aria-label="Previous day">
         <ChevronLeft className="size-4" />
       </Link>
-      <div className="min-w-40 rounded-lg border border-line bg-white px-3 py-1.5 text-center text-sm font-semibold text-navy">{formatDate(date, { weekday: true, year: true })}</div>
-      <Link href={href(step(date, 1))} className={buttonClass("secondary", "sm")} aria-label="Next working day">
+      <div className="min-w-40 rounded-lg border border-line bg-surface px-3 py-1.5 text-center text-sm font-semibold text-heading">
+        {formatDate(date, { weekday: true, year: true })}
+      </div>
+      <Link href={href(step(date, 1))} className={buttonClass("secondary", "sm")} aria-label="Next day">
         <ChevronRight className="size-4" />
       </Link>
     </div>

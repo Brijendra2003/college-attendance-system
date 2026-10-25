@@ -14,7 +14,7 @@ export function StaffOptionsProvider({ options, children }: { options: Options; 
   return <StaffOptions value={options}>{children}</StaffOptions>;
 }
 
-export function SessionRowActions({ sessionId, departmentId, staffId, title }: { sessionId: string; departmentId: string; staffId: string; title: string }) {
+export function SessionRowActions({ sessionId, departmentId, staffId, title }: { sessionId: string; departmentId: string; staffId: string | null; title: string }) {
   const staff = (use(StaffOptions)[departmentId] ?? []).filter((s) => s.value !== staffId);
   return (
     <div className="flex justify-end gap-1.5">
@@ -31,7 +31,7 @@ export function SessionRowActions({ sessionId, departmentId, staffId, title }: {
             </Select>
           </Field>
           <div className="flex justify-end">
-            <SubmitButton>Assign</SubmitButton>
+            <SubmitButton pendingLabel="Assigning">Assign</SubmitButton>
           </div>
         </ActionForm>
       </Dialog>
@@ -42,7 +42,9 @@ export function SessionRowActions({ sessionId, departmentId, staffId, title }: {
             <Textarea name="reason" placeholder="e.g. Professor on university paper-setting duty" />
           </Field>
           <div className="flex justify-end">
-            <SubmitButton variant="danger">Cancel session</SubmitButton>
+            <SubmitButton variant="danger" pendingLabel="Cancelling">
+              Cancel session
+            </SubmitButton>
           </div>
         </ActionForm>
       </Dialog>

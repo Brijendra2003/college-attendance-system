@@ -112,19 +112,20 @@ end $$;
 create or replace function app.apply_blueprint(p_doc jsonb, p_year uuid, p_term uuid) returns jsonb
 language plpgsql security definer set search_path = '' as $$
 declare
-  d jsonb; py record; v_dept uuid; v_div uuid; v_scheme uuid; s jsonb; c jsonb; v_subject uuid;
+  d jsonb; dr record; py record; v_dept uuid; v_div uuid; v_scheme uuid; s jsonb; c jsonb; v_subject uuid;
   v_divs integer := 0; v_subjects integer := 0; v_offerings integer := 0; v_parity text; n integer;
 begin
   select parity into v_parity from public.academic_terms where id = p_term;
 
-  -- departments
-  for d in select * from jsonb_array_elements(p_doc -> 'departments') loop
+  -- departments (document order is display order)
+  for dr in select value, ordinality from jsonb_array_elements(p_doc -> 'departments') with ordinality loop
+    d := dr.value;
     insert into public.departments (code, name, established, intake, is_active, sort_order)
     values (d ->> 'code', d ->> 'name', (d ->> 'established')::smallint,
             (select coalesce(sum((v ->> 'count')::int * coalesce((v ->> 'capacity')::int, 60)), 0) from jsonb_each(d -> 'divisions') e(k, v) where k = 'FE'),
-            coalesce((d ->> 'active')::boolean, true), coalesce((d ->> 'sortOrder')::smallint, 0))
+            coalesce((d ->> 'active')::boolean, true), dr.ordinality)
     on conflict (code) do update set name = excluded.name, established = excluded.established, intake = excluded.intake,
-      is_active = excluded.is_active
+      is_active = excluded.is_active, sort_order = excluded.sort_order
     returning id into v_dept;
 
     if coalesce((d ->> 'active')::boolean, true) and p_year is not null then
@@ -264,6 +265,7 @@ begin
     count_mode = coalesce(p #>> '{policy,countMode}', count_mode)
   where scope = 'college' and effective_to is null;
 
+  delete from public.blueprint_versions where status = 'draft'; -- the wizard's autosave
   insert into public.blueprint_versions (version, status, document, validation, created_by, activated_by, activated_at)
   values ((select coalesce(max(version), 0) + 1 from public.blueprint_versions), 'active', p -> 'blueprint', v_val, auth.uid(), auth.uid(), now())
   returning id into v_bp;

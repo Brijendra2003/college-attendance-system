@@ -1,285 +1,236 @@
 import "server-only";
-import { addDays, formatDate, istDate } from "@/shared/dates";
-import { standing } from "@/shared/attendance";
-import { db } from "@/lib/data/store";
-import {
-  activeTerm,
-  allStandings,
-  currentEnrollments,
-  divisionDailyRates,
-  getSessionById,
-  isWorkingDay,
-  lastWorkingDay,
-  sessionsOn,
-  workingDays,
-} from "@/lib/data/engine";
-import type { ClassSession, RegisterState } from "@/lib/data/types";
-import { batchLabel, deptCode, divisionById, divisionLabel, staffById, subjectById } from "@/features/common/lookups";
+import { db, rpc, unwrap } from "@/lib/db";
+
+// All reads run as the signed-in user, so RLS scopes every row (§5).
+
+export type DisplayState = "submitted" | "pending" | "upcoming" | "missing" | "cancelled" | "reopened" | "voided";
 
 export interface SessionRow {
   id: string;
-  date: string;
-  start: number;
-  end: number;
-  departmentId: string;
-  deptCode: ReturnType<typeof deptCode>;
-  divisionId: string;
-  division: string;
-  batch: string;
-  subjectCode: string;
-  subjectName: string;
-  component: string;
-  staffId: string;
-  staffName: string;
-  substituteName: string | null;
-  room: string;
-  status: ClassSession["status"];
-  cancelReason: string | null;
-  state: RegisterState | null;
-  present: number;
+  session_date: string;
+  starts_at: string;
+  ends_at: string;
+  start_time: string;
+  end_time: string;
+  department_id: string;
+  department_code: string;
+  division_id: string;
+  division_label: string;
+  program_year: string;
+  batch_id: string | null;
+  batch_code: string | null;
+  component: "TH" | "PR" | "TUT";
+  session_type: string;
+  room_label: string | null;
+  status: "scheduled" | "held" | "cancelled" | "rescheduled";
+  cancel_reason: string | null;
+  subject_code: string;
+  subject_name: string;
+  offering_id: string;
+  staff_id: string | null;
+  staff_name: string | null;
+  substitute_id: string | null;
+  substitute_name: string | null;
+  register_state: string | null;
+  submitted_at: string | null;
+  is_late: boolean | null;
+  present_count: number | null;
+  total_count: number | null;
+  nudged_at: string | null;
+  display_state: DisplayState;
+}
+
+export const batchLabel = (code: string | null) => (code ? `Batch ${code}` : "");
+
+export async function sessionRows(date: string, departmentId: string | null): Promise<SessionRow[]> {
+  const s = await db();
+  let q = s.from("v_sessions").select("*").eq("session_date", date);
+  if (departmentId) q = q.eq("department_id", departmentId);
+  return unwrap(await q.order("starts_at").order("division_label").limit(2000)) as SessionRow[];
+}
+
+export async function sessionsByIds(ids: string[]): Promise<Map<string, SessionRow>> {
+  if (!ids.length) return new Map();
+  const s = await db();
+  const rows = unwrap(await s.from("v_sessions").select("*").in("id", ids)) as SessionRow[];
+  return new Map(rows.map((r) => [r.id, r]));
+}
+
+export interface RegisterCounts {
   total: number;
-  late: boolean;
-  submittedAt: string | null;
-  nudgedAt: string | null;
+  held: number;
+  pending: number;
+  upcoming: number;
+  missing: number;
+  cancelled: number;
+  reopened: number;
+  late: number;
+  present: number;
+  roster: number;
 }
 
-export function toRow(s: ClassSession): SessionRow {
-  const div = divisionById(s.slot.divisionId)!;
-  const subject = subjectById(s.slot.subjectId)!;
-  return {
-    id: s.id,
-    date: s.date,
-    start: s.slot.start,
-    end: s.slot.end,
-    departmentId: div.departmentId,
-    deptCode: deptCode(div.departmentId),
-    divisionId: div.id,
-    division: divisionLabel(div),
-    batch: batchLabel(s.slot.batchId),
-    subjectCode: subject.code,
-    subjectName: subject.name,
-    component: s.slot.component,
-    staffId: s.staffId,
-    staffName: staffById(s.staffId)?.name ?? "—",
-    substituteName: s.substituteId ? (staffById(s.substituteId)?.name ?? null) : null,
-    room: s.slot.room,
-    status: s.status,
-    cancelReason: s.cancelReason,
-    state: s.register?.state ?? null,
-    present: s.register?.present ?? 0,
-    total: s.register?.total ?? 0,
-    late: s.register?.late ?? false,
-    submittedAt: s.register?.submittedAt ?? null,
-    nudgedAt: db().sessionOverrides.get(s.id)?.nudgedAt ?? null,
-  };
+export const registerCounts = (date: string, departmentId: string | null) =>
+  rpc<RegisterCounts>("register_counts", { p_date: date, p_department: departmentId });
+
+/** Today if it has sessions, otherwise the most recent day that did. */
+export async function referenceDate() {
+  const date = await rpc<string>("reference_date");
+  const today = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
+  return { date, today, isToday: date === today };
 }
 
-/** Today if it is a working day, otherwise the most recent one. */
-export function referenceDate() {
-  const today = istDate();
-  const date = isWorkingDay(today) ? today : lastWorkingDay(today);
-  return { date, isToday: date === today, today };
+export async function recentWorkingDays(n: number): Promise<string[]> {
+  return (await rpc<string[]>("recent_working_days", { p_n: n })) ?? [];
 }
 
-export function sessionRows(date: string, departmentId: string | null): SessionRow[] {
-  return sessionsOn(date)
-    .map(toRow)
-    .filter((r) => !departmentId || r.departmentId === departmentId);
+export async function dailyTrend(days: number, departmentId: string | null) {
+  const rows = await rpc<{ day: string; present: number; total: number; percent: number | null }[]>("daily_trend", { p_days: days, p_department: departmentId });
+  return rows.map((r) => ({ date: r.day, percent: r.percent === null ? null : Number(r.percent) }));
 }
 
-export function sessionRow(id: string): SessionRow | null {
-  const s = getSessionById(id);
-  return s ? toRow(s) : null;
-}
-
-export function registerCounts(rows: SessionRow[]) {
-  const c = { total: rows.length, held: 0, pending: 0, upcoming: 0, missing: 0, cancelled: 0, late: 0, reopened: 0, present: 0, roster: 0 };
-  for (const r of rows) {
-    if (r.status === "cancelled") c.cancelled++;
-    else if (r.state === "submitted" || r.state === "locked") c.held++;
-    else if (r.state === "reopened") c.reopened++;
-    else if (r.state === "missing") c.missing++;
-    else if (r.state === "upcoming") c.upcoming++;
-    else c.pending++;
-    if (r.late) c.late++;
-    if (r.status === "held") {
-      c.present += r.present;
-      c.roster += r.total;
-    }
-  }
-  return c;
-}
-
-export function recentWorkingDays(n: number, upTo?: string): string[] {
-  const end = upTo ?? referenceDate().date;
-  const term = activeTerm();
-  const days = workingDays(term.startDate, end);
-  return days.slice(-n);
-}
-
-export function dailyTrend(days: string[], departmentId: string | null) {
-  return days.map((date) => {
-    const c = registerCounts(sessionRows(date, departmentId));
-    return {
-      date,
-      label: formatDate(date),
-      percent: c.roster ? Math.round((c.present / c.roster) * 1000) / 10 : null,
-    };
-  });
-}
-
-export function branchStats() {
-  const standings = allStandings();
-  const enr = currentEnrollments();
-  const min = db().policy.minPercent;
-  const agg = new Map<string, { sum: number; n: number; shortage: number }>();
-  for (const s of standings.values()) {
-    const e = enr.get(s.studentId);
-    if (!e || s.percent === null) continue;
-    const a = agg.get(e.departmentId) ?? { sum: 0, n: 0, shortage: 0 };
-    a.sum += s.percent;
-    a.n++;
-    if ((s.lowest ?? 100) < min) a.shortage++;
-    agg.set(e.departmentId, a);
-  }
-  return db()
-    .departments.filter((d) => d.isActive)
-    .map((d) => {
-      const a = agg.get(d.id) ?? { sum: 0, n: 0, shortage: 0 };
-      return {
-        departmentId: d.id,
-        code: d.code,
-        name: d.name,
-        students: a.n,
-        percent: a.n ? Math.round((a.sum / a.n) * 10) / 10 : 0,
-        shortage: a.shortage,
-      };
-    });
-}
-
-export function divisionStats(departmentId: string | null) {
-  const standings = allStandings();
-  const enr = currentEnrollments();
-  const min = db().policy.minPercent;
-  const agg = new Map<string, { sum: number; n: number; shortage: number }>();
-  for (const s of standings.values()) {
-    const e = enr.get(s.studentId);
-    if (!e || s.percent === null || (departmentId && e.departmentId !== departmentId)) continue;
-    const a = agg.get(e.divisionId) ?? { sum: 0, n: 0, shortage: 0 };
-    a.sum += s.percent;
-    a.n++;
-    if ((s.lowest ?? 100) < min) a.shortage++;
-    agg.set(e.divisionId, a);
-  }
-  return [...agg.entries()]
-    .map(([divisionId, a]) => {
-      const div = divisionById(divisionId)!;
-      return { divisionId, label: divisionLabel(div), programYear: div.programYear, deptCode: deptCode(div.departmentId), students: a.n, percent: Math.round((a.sum / a.n) * 10) / 10, shortage: a.shortage };
-    })
-    .sort((a, b) => a.label.localeCompare(b.label));
-}
-
-export function heatmap(departmentId: string | null, programYear: string | null, days: string[]) {
-  const divs = db().divisions.filter(
-    (d) => d.academicYearId === "ay-2026" && (!departmentId || d.departmentId === departmentId) && (!programYear || d.programYear === programYear),
-  );
-  const values = divisionDailyRates(days, new Set(divs.map((d) => d.id)));
-  return {
-    rows: divs.map((d) => ({ id: d.id, label: divisionLabel(d) })),
-    columns: days.map((d) => ({ id: d, label: formatDate(d), sub: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date(d).getUTCDay()] })),
-    values,
-  };
-}
-
-export interface ShortageRow {
-  studentId: string;
+export interface BranchStat {
+  department_id: string;
+  code: string;
   name: string;
-  enrollmentNo: string;
-  rollNo: number;
-  division: string;
-  divisionId: string;
-  deptCode: ReturnType<typeof deptCode>;
-  departmentId: string;
-  programYear: string;
+  students: number;
+  percent: number | null;
+  shortage: number;
+}
+
+export async function branchStats(): Promise<BranchStat[]> {
+  const rows = await rpc<BranchStat[]>("branch_stats");
+  return rows.map((r) => ({ ...r, percent: r.percent === null ? null : Number(r.percent) }));
+}
+
+export interface DivisionStat {
+  division_id: string;
+  label: string;
+  department_code: string;
+  program_year: string;
+  students: number;
+  percent: number | null;
+  shortage: number;
+}
+
+export async function divisionStats(departmentId: string | null, programYear: string | null): Promise<DivisionStat[]> {
+  const rows = await rpc<DivisionStat[]>("division_stats", { p_department: departmentId, p_program_year: programYear });
+  return rows.map((r) => ({ ...r, percent: r.percent === null ? null : Number(r.percent) }));
+}
+
+export async function heatmap(days: number, departmentId: string | null, programYear: string | null) {
+  const rows = await rpc<{ division_id: string; label: string; day: string; percent: number | null }[]>("division_daily_rates", {
+    p_days: days,
+    p_department: departmentId,
+    p_program_year: programYear,
+  });
+  const dayList = [...new Set(rows.map((r) => r.day))].sort();
+  const divs = new Map<string, string>();
+  const values = new Map<string, Map<string, number | null>>();
+  for (const r of rows) {
+    divs.set(r.division_id, r.label);
+    if (!values.has(r.division_id)) values.set(r.division_id, new Map());
+    values.get(r.division_id)!.set(r.day, r.percent === null ? null : Number(r.percent));
+  }
+  return { rows: [...divs].map(([id, label]) => ({ id, label })), days: dayList, values };
+}
+
+export async function componentSplit(days: number, departmentId: string | null) {
+  const rows = await rpc<{ component: string; present: number; total: number }[]>("component_split", { p_days: days, p_department: departmentId });
+  const of = (k: string) => rows.find((r) => r.component === k) ?? { present: 0, total: 0 };
+  return { TH: of("TH"), PR: of("PR") };
+}
+
+export interface FacultyRow {
+  staff_id: string;
+  full_name: string;
+  designation: string;
+  department_code: string;
+  on_time: number;
+  late: number;
+  missing: number;
+  pending: number;
+  total: number;
+  on_time_percent: number | null;
+}
+
+export async function facultySubmission(days: number, departmentId: string | null): Promise<FacultyRow[]> {
+  const rows = await rpc<FacultyRow[]>("faculty_submission", { p_days: days, p_department: departmentId });
+  return rows.map((r) => ({ ...r, on_time_percent: r.on_time_percent === null ? null : Number(r.on_time_percent) }));
+}
+
+export interface StudentListRow {
+  id: string;
+  enrollment_no: string;
+  prn: string | null;
+  full_name: string;
+  status: string;
+  department_id: string;
+  department_code: string;
+  program_year: string | null;
+  division_id: string | null;
+  division_label: string | null;
+  batch_code: string | null;
+  roll_no: number | null;
+  enrollment_type: string | null;
+  guardian_status: string | null;
   percent: number | null;
   lowest: number | null;
-  shortSubjects: number;
-  standing: ReturnType<typeof standing>;
+  short_subjects: number | null;
 }
 
-export function shortageRows(opts: { departmentId: string | null; programYear?: string; divisionId?: string; band?: string }): ShortageRow[] {
-  const { minPercent, warnPercent } = db().policy;
-  const enr = currentEnrollments();
-  const students = new Map(db().students.map((x) => [x.id, x]));
-  const out: ShortageRow[] = [];
-  for (const s of allStandings().values()) {
-    const e = enr.get(s.studentId);
-    if (!e) continue;
-    if (opts.departmentId && e.departmentId !== opts.departmentId) continue;
-    if (opts.programYear && e.programYear !== opts.programYear) continue;
-    if (opts.divisionId && e.divisionId !== opts.divisionId) continue;
-    const st = standing(s.lowest, minPercent, warnPercent);
-    if (opts.band === "warning" ? st !== "warning" : opts.band === "all" ? st === "safe" || st === "na" : st !== "shortage") continue;
-    const student = students.get(s.studentId)!;
-    const div = divisionById(e.divisionId)!;
-    out.push({
-      studentId: s.studentId,
-      name: student.name,
-      enrollmentNo: student.enrollmentNo,
-      rollNo: e.rollNo,
-      division: divisionLabel(div),
-      divisionId: div.id,
-      deptCode: deptCode(e.departmentId),
-      departmentId: e.departmentId,
-      programYear: e.programYear,
-      percent: s.percent,
-      lowest: s.lowest,
-      shortSubjects: s.shortSubjects,
-      standing: st,
-    });
-  }
-  return out.sort((a, b) => (a.lowest ?? 0) - (b.lowest ?? 0));
+export async function shortageList(opts: {
+  band?: string;
+  departmentId: string | null;
+  programYear?: string;
+  divisionId?: string;
+  page: number;
+  pageSize: number;
+}): Promise<{ rows: StudentListRow[]; total: number }> {
+  const s = await db();
+  const from = (opts.page - 1) * opts.pageSize;
+  const res = await s
+    .rpc("shortage_list", { p_band: opts.band ?? "shortage", p_department: opts.departmentId, p_program_year: opts.programYear ?? null, p_division: opts.divisionId ?? null }, { count: "exact" })
+    .range(from, from + opts.pageSize - 1);
+  return { rows: unwrap(res) as StudentListRow[], total: res.count ?? 0 };
 }
 
-export function facultySubmission(departmentId: string | null, days: string[]) {
-  const agg = new Map<string, { onTime: number; late: number; missing: number; pending: number }>();
-  for (const date of days) {
-    for (const r of sessionRows(date, departmentId)) {
-      if (r.status === "cancelled" || r.state === "upcoming") continue;
-      const a = agg.get(r.staffId) ?? { onTime: 0, late: 0, missing: 0, pending: 0 };
-      if (r.state === "missing") a.missing++;
-      else if (r.state === "pending") a.pending++;
-      else if (r.late) a.late++;
-      else a.onTime++;
-      agg.set(r.staffId, a);
-    }
-  }
-  return [...agg.entries()]
-    .map(([staffId, a]) => {
-      const total = a.onTime + a.late + a.missing + a.pending;
-      const s = staffById(staffId)!;
-      return { staffId, name: s.name, designation: s.designation, deptCode: deptCode(s.departmentId), ...a, total, onTimePercent: total ? Math.round((a.onTime / total) * 1000) / 10 : 0 };
-    })
-    .sort((a, b) => a.onTimePercent - b.onTimePercent);
+export async function termProgress() {
+  return rpc<{ label: string; done: number; total: number } | null>("term_progress");
 }
 
-export function correctionRows(departmentId: string | null, status?: string) {
-  const store = db();
-  return store.corrections
-    .filter((c) => !status || status === "all" || c.status === status)
-    .map((c) => {
-      const student = store.students.find((s) => s.id === c.studentId)!;
-      const session = sessionRow(c.sessionId);
-      return { ...c, student, session };
-    })
-    .filter((c) => !departmentId || c.student.departmentId === departmentId)
-    .sort((a, b) => (a.status === "pending" ? -1 : 1) - (b.status === "pending" ? -1 : 1) || b.createdAt.localeCompare(a.createdAt));
+export interface CorrectionRow {
+  id: string;
+  session_id: string;
+  student_id: string;
+  from_status: string;
+  to_status: string;
+  reason: string;
+  status: "pending" | "approved" | "rejected";
+  created_at: string;
+  decided_at: string | null;
+  decision_note: string | null;
+  student: { full_name: string; enrollment_no: string } | null;
+  requester: { full_name: string } | null;
+  decider: { display_name: string } | null;
+  session?: SessionRow;
 }
 
-export function termProgress() {
-  const term = activeTerm();
-  const today = istDate();
-  const total = workingDays(term.startDate, term.endDate).length;
-  const done = workingDays(term.startDate, today < term.endDate ? addDays(today, -1) : term.endDate).length;
-  return { term, total, done, percent: Math.round((done / total) * 100) };
+export async function correctionRows(status: string): Promise<CorrectionRow[]> {
+  const s = await db();
+  let q = s
+    .from("attendance_correction_requests")
+    .select("id, session_id, student_id, from_status, to_status, reason, status, created_at, decided_at, decision_note, student:students(full_name, enrollment_no), requester:staff(full_name)")
+    .order("created_at", { ascending: false })
+    .limit(500);
+  if (status !== "all") q = q.eq("status", status);
+  const rows = unwrap(await q) as unknown as CorrectionRow[];
+  const sessions = await sessionsByIds([...new Set(rows.map((r) => r.session_id))]);
+  return rows.map((r) => ({ ...r, session: sessions.get(r.session_id) }));
+}
+
+export async function correctionCounts() {
+  const s = await db();
+  const count = async (st: string) => (await s.from("attendance_correction_requests").select("id", { count: "exact", head: true }).eq("status", st)).count ?? 0;
+  const [pending, approved, rejected] = await Promise.all([count("pending"), count("approved"), count("rejected")]);
+  return { pending, approved, rejected };
 }

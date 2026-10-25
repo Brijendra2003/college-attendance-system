@@ -3,16 +3,17 @@
 import { startTransition, useActionState, useState } from "react";
 import { CircleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Spinner } from "@/components/ui/spinner";
 import { setRolePermission } from "./actions";
 
 const SCOPES = ["none", "all", "department", "assigned", "self", "linked"] as const;
 const TONE: Record<string, string> = {
-  none: "text-faint bg-white",
-  all: "text-green-800 bg-ok-soft",
-  department: "text-blue-800 bg-info-soft",
-  assigned: "text-violet-800 bg-violet-soft",
-  self: "text-amber-800 bg-warn-soft",
-  linked: "text-amber-800 bg-warn-soft",
+  none: "text-faint bg-surface",
+  all: "text-ok-ink bg-ok-soft",
+  department: "text-info-ink bg-info-soft",
+  assigned: "text-violet-ink bg-violet-soft",
+  self: "text-warn-ink bg-warn-soft",
+  linked: "text-warn-ink bg-warn-soft",
 };
 
 /**
@@ -52,6 +53,7 @@ export function ScopeCell({ role, permission, value }: { role: string; permissio
           </option>
         ))}
       </select>
+      {pending && <Spinner className="text-primary" />}
       {state && !state.ok && (
         <span title={state.error} className="text-bad">
           <CircleAlert className="size-3.5" />

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Smartphone } from "lucide-react";
-import { ButtonLink } from "@/components/ui/primitives";
+import { signOut } from "@/features/auth/actions";
+import { buttonClass } from "@/components/ui/primitives";
 
 export const metadata: Metadata = { title: "Use the mobile app" };
 
@@ -8,18 +9,20 @@ export const metadata: Metadata = { title: "Use the mobile app" };
 export default function UseMobileAppPage() {
   return (
     <div className="grid min-h-screen place-items-center p-6">
-      <div className="max-w-md rounded-2xl border border-line bg-white p-8 text-center shadow-card">
-        <div className="mx-auto mb-4 grid size-14 place-items-center rounded-2xl bg-navy-50 text-navy">
+      <div className="max-w-md rounded-2xl border border-line bg-surface p-8 text-center shadow-card">
+        <div className="mx-auto mb-4 grid size-14 place-items-center rounded-2xl bg-navy-50 text-heading">
           <Smartphone className="size-7" />
         </div>
-        <h1 className="text-xl font-bold text-navy">Use the SJCEM Attendance app</h1>
+        <h1 className="text-xl font-bold text-heading">Use the SJCEM Attendance app</h1>
         <p className="mt-2 text-sm text-muted">
-          Professors mark attendance, and students and parents track it, in the mobile app. The web portal is for Principal, Admin,
-          Operations, Exam Cell and HODs.
+          Professors mark attendance, and students and parents track it, in the mobile app. The web portal is for Principal, Admin, Operations, Exam Cell
+          and HODs.
         </p>
-        <ButtonLink href="/login" className="mt-6">
-          Back to sign in
-        </ButtonLink>
+        <form action={signOut} className="mt-6">
+          <button type="submit" className={buttonClass("secondary")}>
+            Sign out
+          </button>
+        </form>
       </div>
     </div>
   );

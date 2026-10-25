@@ -6,7 +6,8 @@ export interface NavItem {
   href: string;
   label: string;
   icon: string;
-  permission: Permission | null;
+  /** null = every web role; an array = any one of them */
+  permission: Permission | Permission[] | null;
 }
 
 export interface NavSection {
@@ -26,7 +27,9 @@ export const NAV: NavSection[] = [
       { href: "/academics/departments", label: "Departments", icon: "building", permission: "blueprint.view" },
       { href: "/academics/classes", label: "Divisions & batches", icon: "users-round", permission: "blueprint.view" },
       { href: "/academics/subjects", label: "Subjects", icon: "book-open", permission: "blueprint.view" },
-      { href: "/academics/calendar", label: "Years & calendar", icon: "calendar-days", permission: "blueprint.view" },
+      { href: "/academics/calendar", label: "Calendar", icon: "calendar-days", permission: "blueprint.view" },
+      { href: "/academics/blueprint", label: "Blueprint editor", icon: "pencil-ruler", permission: "blueprint.manage" },
+      { href: "/academics/years", label: "Years & rollover", icon: "repeat", permission: "year.rollover" },
     ],
   },
   {
@@ -59,7 +62,7 @@ export const NAV: NavSection[] = [
     items: [
       { href: "/exams", label: "Exams", icon: "notebook-pen", permission: "exams.view" },
       { href: "/leave", label: "Leave", icon: "calendar-x", permission: "leave.student.decide" },
-      { href: "/announcements", label: "Announcements", icon: "megaphone", permission: null },
+      { href: "/announcements", label: "Announcements", icon: "megaphone", permission: ["announcements.college", "announcements.class"] },
       { href: "/reports", label: "Reports", icon: "file-spreadsheet", permission: "reports.view" },
     ],
   },

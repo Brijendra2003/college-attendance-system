@@ -36,10 +36,11 @@ interface WhoAmI {
 
 /** Identity comes from verified JWT claims, never from getSession() (§6). */
 export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
+  // Everything behind the session is live data rendered per request. Mark it
+  // dynamic first: getClaims() checks token expiry against the clock.
+  await connection();
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
-  // Everything behind the session is live operational data, rendered per request.
-  await connection();
   if (!data?.claims?.sub) return null;
   const { data: me } = await supabase.rpc("whoami");
   const w = me as WhoAmI | null;

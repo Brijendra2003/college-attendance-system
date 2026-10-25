@@ -1,44 +1,69 @@
 import "server-only";
-import { db } from "@/lib/data/store";
-import { batchLabel, currentHod, deptCode, divisionById, divisionLabel, subjectById } from "@/features/common/lookups";
-import { facultySubmission, recentWorkingDays } from "@/features/attendance/queries";
+import { db, unwrap } from "@/lib/db";
+import { facultySubmission } from "@/features/attendance/queries";
 
-export function listStaff(opts: { departmentId: string | null; q?: string; designation?: string }) {
-  const store = db();
-  const q = opts.q?.toLowerCase();
-  const load = new Map<string, number>();
-  for (const s of store.timetableSlots) load.set(s.staffId, (load.get(s.staffId) ?? 0) + (s.end - s.start) / 60);
-  const classTeacherOf = new Map(store.divisions.filter((d) => d.academicYearId === "ay-2026" && d.classTeacherId).map((d) => [d.classTeacherId!, divisionLabel(d)]));
-  return store.staff
-    .filter((s) => (!opts.departmentId || s.departmentId === opts.departmentId) && (!opts.designation || s.designation === opts.designation))
-    .filter((s) => !q || s.name.toLowerCase().includes(q) || s.employeeId.toLowerCase().includes(q))
-    .map((s) => ({
-      ...s,
-      deptCode: deptCode(s.departmentId),
-      isHod: currentHod(s.departmentId)?.staff.id === s.id,
-      weeklyHours: load.get(s.id) ?? 0,
-      classTeacherOf: classTeacherOf.get(s.id) ?? null,
-    }))
-    .sort((a, b) => a.departmentId.localeCompare(b.departmentId) || Number(b.isHod) - Number(a.isHod) || a.name.localeCompare(b.name));
+export interface StaffRow {
+  id: string;
+  employee_id: string;
+  full_name: string;
+  designation: string;
+  department_id: string;
+  department_code: string;
+  email: string | null;
+  phone: string | null;
+  joined_on: string | null;
+  status: string;
+  user_id: string | null;
+  is_hod: boolean;
+  weekly_hours: number;
+  class_teacher_of: string | null;
 }
 
-export function staffDetail(id: string) {
-  const store = db();
-  const s = store.staff.find((x) => x.id === id);
-  if (!s) return null;
-  const memberships = store.departmentStaff.filter((d) => d.staffId === id).sort((a, b) => b.validFrom.localeCompare(a.validFrom));
-  const assignments = store.teachingAssignments
-    .filter((a) => a.staffId === id && a.validTo === null)
-    .map((a) => {
-      const g = store.teachingGroups.find((x) => x.id === a.teachingGroupId)!;
-      const div = divisionById(g.divisionId)!;
-      return { ...a, group: g, subject: subjectById(g.subjectId)!, division: divisionLabel(div), batch: batchLabel(g.batchId) };
-    })
-    .sort((a, b) => a.division.localeCompare(b.division));
-  const slots = store.timetableSlots
-    .filter((x) => x.staffId === id && !x.versionId.includes("-r"))
-    .map((x) => ({ ...x, subject: subjectById(x.subjectId)!, division: divisionLabel(divisionById(x.divisionId)!), batch: batchLabel(x.batchId) }));
-  const submission = facultySubmission(s.departmentId, recentWorkingDays(20)).find((r) => r.staffId === id) ?? null;
-  const classTeacherOf = store.divisions.filter((d) => d.classTeacherId === id && d.academicYearId === "ay-2026").map(divisionLabel);
-  return { staff: s, memberships, assignments, slots, submission, classTeacherOf, isHod: currentHod(s.departmentId)?.staff.id === id };
+export async function listStaff(opts: { departmentId: string | null; q?: string; designation?: string }): Promise<StaffRow[]> {
+  const s = await db();
+  let q = s.from("v_staff").select("*");
+  if (opts.departmentId) q = q.eq("department_id", opts.departmentId);
+  if (opts.designation) q = q.eq("designation", opts.designation);
+  const term = opts.q?.trim().replace(/[%,()]/g, " ");
+  if (term) q = q.or(`full_name.ilike.%${term}%,employee_id.ilike.%${term}%`);
+  const rows = unwrap(await q.order("department_code").order("is_hod", { ascending: false }).order("full_name").limit(1000)) as StaffRow[];
+  return rows;
+}
+
+interface SlotRow {
+  id: string;
+  weekday: number;
+  starts_at: string;
+  ends_at: string;
+  room_label: string | null;
+  session_type: string;
+  group: { component: string; division: { label: string } | null; batch: { code: string } | null; offering: { subject: { code: string; name: string } } };
+}
+
+export async function staffDetail(id: string) {
+  const s = await db();
+  const staff = unwrap(await s.from("v_staff").select("*").eq("id", id).maybeSingle()) as StaffRow | null;
+  if (!staff) return null;
+  const [memberships, slots, assignments, submission] = await Promise.all([
+    s.from("department_staff").select("id, role, valid_during").eq("staff_id", id).order("valid_during", { ascending: false }),
+    s
+      .from("timetable_slots")
+      .select(
+        "id, weekday, starts_at, ends_at, room_label, session_type, version:timetable_versions!inner(status), group:teaching_groups(component, division:v_divisions(label), batch:batches(code), offering:subject_offerings(subject:subjects(code, name)))",
+      )
+      .eq("staff_id", id)
+      .eq("version.status", "published"),
+    s
+      .from("teaching_assignments")
+      .select("id, role, valid_during, group:teaching_groups(component, division:v_divisions(label), batch:batches(code), offering:subject_offerings(subject:subjects(code, name)))")
+      .eq("staff_id", id),
+    facultySubmission(20, staff.department_id),
+  ]);
+  return {
+    staff,
+    memberships: unwrap(memberships) as { id: string; role: string; valid_during: string }[],
+    slots: unwrap(slots) as unknown as SlotRow[],
+    assignments: unwrap(assignments) as unknown as { id: string; role: string; valid_during: string; group: SlotRow["group"] }[],
+    submission: submission.find((r) => r.staff_id === id) ?? null,
+  };
 }

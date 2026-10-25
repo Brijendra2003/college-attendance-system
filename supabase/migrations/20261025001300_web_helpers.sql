@@ -58,5 +58,51 @@ language sql stable security definer set search_path = '' as $$
   where app.can('blueprint.view', 'all') or app.can('blueprint.view', 'department')
 $$;
 
-grant execute on function public.whoami(), public.touch_last_seen(), public.setup_health() to authenticated;
-revoke execute on function public.whoami(), public.touch_last_seen(), public.setup_health() from anon, public;
+-- Teaching days done vs scheduled in the active term (days with at least one session).
+create or replace function public.term_progress() returns jsonb
+language sql stable security definer set search_path = '' as $$
+  select jsonb_build_object(
+    'label', t.label,
+    'done', (select count(distinct s.session_date) from public.class_sessions s where s.term_id = t.id and s.session_date < app.today()),
+    'total', (select count(distinct s.session_date) from public.class_sessions s where s.term_id = t.id)
+  )
+  from public.academic_terms t where t.status = 'active'
+$$;
+
+-- App configuration (§11.15). Values arrive as text and are stored as JSON.
+create or replace function public.set_app_config(p_key text, p_value text) returns void
+language plpgsql security definer set search_path = '' as $$
+declare v_old jsonb; v_new jsonb;
+begin
+  perform app.require('settings.manage');
+  v_new := case p_key
+    when 'require_mfa_for_admins' then to_jsonb(p_value::boolean)
+    when 'min_mobile_version' then case when p_value ~ '^\d+\.\d+\.\d+$' then to_jsonb(p_value) end
+    when 'maintenance_banner' then case when nullif(trim(p_value), '') is null then 'null'::jsonb else to_jsonb(trim(p_value)) end
+  end;
+  if v_new is null then raise exception 'VALIDATION' using errcode = 'P0001'; end if;
+  select value into v_old from public.app_config where key = p_key;
+  insert into public.app_config (key, value, updated_at) values (p_key, v_new, now())
+  on conflict (key) do update set value = excluded.value, updated_at = now();
+  perform app.audit('app_config.updated', 'app_config', p_key, format('Set %s', p_key), jsonb_build_object('value', v_old), jsonb_build_object('value', v_new));
+end $$;
+
+grant execute on function public.set_app_config(text, text) to authenticated;
+revoke execute on function public.set_app_config(text, text) from anon, public;
+
+-- Exports of personal data are audited (§17).
+create or replace function public.log_export(p_report text, p_format text, p_rows integer, p_filters jsonb) returns void
+language plpgsql security definer set search_path = '' as $$
+begin
+  if coalesce(app.scope_of('reports.export'), '') not in ('all', 'department') then
+    raise exception 'FORBIDDEN' using errcode = 'P0001';
+  end if;
+  perform app.audit('report.exported', 'reports', p_report, format('Exported %s as %s (%s rows)', p_report, upper(p_format), p_rows),
+    null, jsonb_build_object('filters', p_filters - 'format', 'rows', p_rows, 'format', p_format));
+end $$;
+
+grant execute on function public.log_export(text, text, integer, jsonb) to authenticated;
+revoke execute on function public.log_export(text, text, integer, jsonb) from anon, public;
+
+grant execute on function public.whoami(), public.touch_last_seen(), public.setup_health(), public.term_progress() to authenticated;
+revoke execute on function public.whoami(), public.touch_last_seen(), public.setup_health(), public.term_progress() from anon, public;

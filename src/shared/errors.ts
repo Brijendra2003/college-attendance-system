@@ -36,6 +36,7 @@ export const ERROR_MESSAGES = {
   ATT_NO_RECORD: "There is no attendance record to change.",
   ATT_NOT_REOPENABLE: "Only pending or locked registers can be reopened.",
   ATT_NOT_RESCHEDULABLE: "Only scheduled sessions can be rescheduled.",
+  NO_PHONE: "Sign in with the mobile number the college has on record.",
 } as const;
 
 export type ErrorCode = keyof typeof ERROR_MESSAGES;
