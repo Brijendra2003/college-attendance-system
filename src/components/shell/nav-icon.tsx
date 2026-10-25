@@ -1,0 +1,55 @@
+import {
+  BookOpen,
+  Briefcase,
+  Building,
+  CalendarDays,
+  CalendarX,
+  ChartColumn,
+  ClipboardCheck,
+  Clock,
+  FilePenLine,
+  FileSpreadsheet,
+  FileUp,
+  GraduationCap,
+  LayoutDashboard,
+  Megaphone,
+  Network,
+  NotebookPen,
+  ScrollText,
+  Settings,
+  ShieldCheck,
+  Table2,
+  TriangleAlert,
+  UsersRound,
+  type LucideIcon,
+} from "lucide-react";
+
+const ICONS: Record<string, LucideIcon> = {
+  "layout-dashboard": LayoutDashboard,
+  network: Network,
+  building: Building,
+  "users-round": UsersRound,
+  "book-open": BookOpen,
+  "calendar-days": CalendarDays,
+  "graduation-cap": GraduationCap,
+  briefcase: Briefcase,
+  "shield-check": ShieldCheck,
+  "file-up": FileUp,
+  "table-2": Table2,
+  clock: Clock,
+  "chart-column": ChartColumn,
+  "clipboard-check": ClipboardCheck,
+  "file-pen-line": FilePenLine,
+  "triangle-alert": TriangleAlert,
+  "notebook-pen": NotebookPen,
+  "calendar-x": CalendarX,
+  megaphone: Megaphone,
+  "file-spreadsheet": FileSpreadsheet,
+  "scroll-text": ScrollText,
+  settings: Settings,
+};
+
+export function NavIcon({ name, className }: { name: string; className?: string }) {
+  const Icon = ICONS[name] ?? LayoutDashboard;
+  return <Icon className={className} aria-hidden />;
+}

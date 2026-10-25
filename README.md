@@ -1,36 +1,61 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SJCEM Attendance — web app
 
-## Getting Started
+Web portal for Principal, Admin, Operations, Exam Cell and HODs, built from
+[webapp_Architecture.md](webapp_Architecture.md). Professors, students and parents use the mobile app.
 
-First, run the development server:
+Stack: Next.js 16 (App Router, Cache Components, `proxy.ts`), React 19, TypeScript, Tailwind CSS v4, Zod 4, Recharts, lucide-react.
+
+## Run
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev        # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Sign in with any demo account listed on the login page. The password is `demo1234` for all of them.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Account | Sees |
+|---|---|
+| `principal@sjcem.edu.in` | Everything, college-wide |
+| `admin@sjcem.edu.in` | Setup health, settings, roles, audit |
+| `operations@sjcem.edu.in` | Students, staff, imports, timetables, registers, corrections, leave |
+| `examcell@sjcem.edu.in` | Exams, eligibility, shortage lists |
+| one HOD per branch | Their own department only |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Data: demo mode
 
-## Learn More
+There is no Supabase project yet, so all reads and writes go through an in-memory store
+(`src/lib/data`), seeded deterministically with a Mumbai University college: 12 branches, FE–BE, divisions A–C,
+batches 1–3, about 4,200 students, 219 staff, published odd-term timetables, guardians, leave, corrections and exams.
+Changes last until the server restarts.
 
-To learn more about Next.js, take a look at the following resources:
+Sessions and registers are derived from the published timetable for any date (`src/lib/data/engine.ts`), so
+"today" always has live data. The derivation mirrors the attendance engine in §8 of the architecture document.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+**Moving to Supabase:** pages and actions only touch `src/features/*/queries.ts` and `actions.ts`. Reimplement those
+against the RPCs and RLS in the architecture doc, swap `src/lib/auth/session.ts` for `@supabase/ssr`, and the UI stays
+unchanged.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Layout
 
-## Deploy on Vercel
+```
+src/
+├── app/(auth)/login          sign-in
+├── app/(portal)/…            the authenticated portal (one folder per route in §10.2)
+├── app/api/                  CSV exports, import template
+├── features/<domain>/        queries.ts (server reads), actions.ts (Server Actions), components
+├── components/ui|shell|charts
+├── lib/auth/                 session, permission checks, action() wrapper (§10.4)
+├── lib/data/                 demo store, seed, attendance engine
+├── shared/                   pure TS shared with mobile: permissions, schemas, attendance maths, tokens, dates
+└── proxy.ts                  redirects signed-out visitors to /login
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+`src/shared` is the source of truth the mobile app syncs from (§4). It only depends on `zod`.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Security model (demo)
+
+- Each page calls `requirePermission()`. Each Server Action goes through `action()`, which re-checks the session,
+  permission, department scope and Zod input.
+- The role → permission → scope matrix is editable under **Settings → Roles & permissions** and applies on the next request.
+- The session is an HMAC-signed cookie. Set `SESSION_SECRET` in any shared environment.

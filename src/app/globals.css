@@ -1,0 +1,166 @@
+@import "tailwindcss";
+
+/* `dark:` follows the resolved theme on <html data-theme>, set before first
+   paint by the inline script in app/layout.tsx (system / light / dark). */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* Light values mirror src/shared/tokens.ts (shared with the mobile app). */
+:root {
+  color-scheme: light;
+  --canvas: #f4f7fb;
+  --surface: #ffffff;
+  --subtle: #f8fafd;
+  --sunken: #f3f7fd;
+  --line: #dbe4f0;
+  --line-soft: #e9eff7;
+  --ink: #0f1f3d;
+  --muted: #5b6b85;
+  --faint: #8a98ae;
+  --heading: #163a70;
+  --navy: #163a70;
+  --navy-700: #0f2c58;
+  --navy-50: #eef3fb;
+  --primary: #1d4ed8;
+  --primary-soft: #e8f0fe;
+  --ok: #16a34a;
+  --ok-soft: #e8f7ee;
+  --ok-ink: #166534;
+  --warn: #d97706;
+  --warn-soft: #fff4e0;
+  --warn-ink: #92400e;
+  --bad: #dc2626;
+  --bad-soft: #fdecec;
+  --bad-ink: #991b1b;
+  --info: #2563eb;
+  --info-soft: #e8f0fe;
+  --info-ink: #1e40af;
+  --violet: #7c3aed;
+  --violet-soft: #f2edff;
+  --violet-ink: #5b21b6;
+  --neutral-soft: #eef2f7;
+  --neutral-ink: #334155;
+  --shadow-card: 0 1px 2px rgb(15 31 61 / 0.04), 0 2px 8px rgb(15 31 61 / 0.04);
+  --shadow-pop: 0 8px 28px rgb(15 31 61 / 0.14);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #0b1220;
+  --surface: #111a2b;
+  --subtle: #0f1828;
+  --sunken: #16223a;
+  --line: #26344d;
+  --line-soft: #1c2942;
+  --ink: #e6edf7;
+  --muted: #9aa9c0;
+  --faint: #6b7a92;
+  --heading: #dbe7ff;
+  --navy: #1f4a8c;
+  --navy-700: #12305d;
+  --navy-50: #17243c;
+  --primary: #7aa7ff;
+  --primary-soft: #172a4d;
+  --ok: #4ade80;
+  --ok-soft: #12301f;
+  --ok-ink: #86efac;
+  --warn: #fbbf24;
+  --warn-soft: #33270f;
+  --warn-ink: #fcd34d;
+  --bad: #f87171;
+  --bad-soft: #3a1717;
+  --bad-ink: #fca5a5;
+  --info: #60a5fa;
+  --info-soft: #14264a;
+  --info-ink: #93c5fd;
+  --violet: #a78bfa;
+  --violet-soft: #251a45;
+  --violet-ink: #c4b5fd;
+  --neutral-soft: #1d2a40;
+  --neutral-ink: #cbd5e1;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-pop: 0 10px 32px rgb(0 0 0 / 0.5);
+}
+
+@theme inline {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-subtle: var(--subtle);
+  --color-sunken: var(--sunken);
+  --color-line: var(--line);
+  --color-line-soft: var(--line-soft);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-heading: var(--heading);
+  --color-navy: var(--navy);
+  --color-navy-700: var(--navy-700);
+  --color-navy-50: var(--navy-50);
+  --color-primary: var(--primary);
+  --color-primary-soft: var(--primary-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-ok-ink: var(--ok-ink);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-warn-ink: var(--warn-ink);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+  --color-bad-ink: var(--bad-ink);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-info-ink: var(--info-ink);
+  --color-violet: var(--violet);
+  --color-violet-soft: var(--violet-soft);
+  --color-violet-ink: var(--violet-ink);
+  --color-neutral-soft: var(--neutral-soft);
+  --color-neutral-ink: var(--neutral-ink);
+
+  --shadow-card: var(--shadow-card);
+  --shadow-pop: var(--shadow-pop);
+
+  --animate-progress: progress 1.2s ease-in-out infinite;
+  @keyframes progress {
+    0% { transform: translateX(-100%) scaleX(0.4); }
+    50% { transform: translateX(30%) scaleX(0.6); }
+    100% { transform: translateX(100%) scaleX(0.4); }
+  }
+}
+
+body {
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media print {
+  aside,
+  header,
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+}
