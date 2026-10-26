@@ -8,6 +8,7 @@ import { param } from "@/lib/utils";
 import { Badge, Card, EmptyState, PageHeader, PageSkeleton, Pagination, Skeleton, StatCard, Table, TD, TH, THead, TR } from "@/components/ui/primitives";
 import { FilterSelect, RowAction, SearchBox } from "@/components/ui/forms";
 import { setGuardianLink } from "@/features/guardians/actions";
+import { GuardianLoginDialog } from "@/features/guardians/login-dialog";
 
 export const metadata: Metadata = { title: "Guardians" };
 
@@ -26,7 +27,7 @@ interface LinkRow {
   status: "pending" | "verified" | "revoked";
   is_primary: boolean;
   student: { id: string; full_name: string; enrollment_no: string } | null;
-  guardian: { full_name: string; relation: string; phone: string; user_id: string | null } | null;
+  guardian: { id: string; full_name: string; relation: string; phone: string; email: string | null; user_id: string | null } | null;
 }
 
 async function Guardians({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -42,7 +43,11 @@ async function Guardians({ searchParams }: { searchParams: Promise<Record<string
 
   return (
     <>
-      <PageHeader eyebrow="People" title="Guardians" description="Verify each guardian link against admission records. Knowing an enrollment number never grants access." />
+      <PageHeader
+        eyebrow="People"
+        title="Guardians"
+        description="Verify each guardian link against admission records, then create the parent's app login (their email and a password you give them). Knowing an enrollment number never grants access."
+      />
       <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StatCard label="Awaiting verification" value={pending} icon={<TriangleAlert className="size-5" />} tone="warn" href="/people/guardians?status=pending" />
         <StatCard label="Verified links" value={verified.toLocaleString("en-IN")} icon={<ShieldCheck className="size-5" />} tone="ok" />
@@ -79,7 +84,7 @@ async function LinkTable({ sp }: { sp: Record<string, string | string[] | undefi
   const page = Math.max(1, Number(param(sp, "page")) || 1);
   let q = s
     .from("guardian_links")
-    .select("id, status, is_primary, student:students!inner(id, full_name, enrollment_no), guardian:guardians(full_name, relation, phone, user_id)", { count: "exact" });
+    .select("id, status, is_primary, student:students!inner(id, full_name, enrollment_no), guardian:guardians(id, full_name, relation, phone, email, user_id)", { count: "exact" });
   if (status !== "all") q = q.eq("status", status);
   if (term) q = q.or(`full_name.ilike.%${term}%,enrollment_no.ilike.%${term}%`, { referencedTable: "student" });
   const res = await q.order("created_at", { ascending: false }).range((page - 1) * PAGE, page * PAGE - 1);
@@ -110,6 +115,7 @@ async function LinkTable({ sp }: { sp: Record<string, string | string[] | undefi
                   {l.is_primary && " · primary"}
                   {l.guardian?.user_id && " · app active"}
                 </div>
+                {l.guardian?.user_id && l.guardian.email && <div className="font-mono text-[11px] text-muted">{l.guardian.email}</div>}
               </TD>
               <TD className="font-mono text-xs">{l.guardian?.phone}</TD>
               <TD>
@@ -123,6 +129,14 @@ async function LinkTable({ sp }: { sp: Record<string, string | string[] | undefi
               </TD>
               <TD>
                 <div className="flex justify-end gap-1.5">
+                  {l.guardian && l.status === "verified" && (
+                    <GuardianLoginDialog
+                      mode={l.guardian.user_id ? "reset" : "create"}
+                      guardianId={l.guardian.id}
+                      name={l.guardian.full_name}
+                      email={l.guardian.email}
+                    />
+                  )}
                   {l.status !== "verified" && <RowAction action={setGuardianLink} fields={{ linkId: l.id, status: "verified" }} label="Verify" variant="success" icon={<Check className="size-3.5" />} />}
                   {l.status !== "revoked" && (
                     <RowAction

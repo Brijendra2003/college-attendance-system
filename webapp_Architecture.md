@@ -305,12 +305,12 @@ for select to authenticated using (
 | Principal, Admin | Email + password + **TOTP MFA (required)** | RLS on roles, permissions and policy tables requires `aal2` |
 | Operations, Exam Cell, HOD | Email + password (MFA recommended), or Google Workspace SSO if the college has a domain | |
 | Professors, Students (mobile) | Email + password | Accounts are provisioned by Ops |
-| Parents (mobile) | Phone number + OTP | Uses the Supabase *Send SMS Hook* with a DLT-registered Indian provider |
+| Parents (mobile) | Email + password | Login issued by Ops/Admin from People → Guardians: the parent's email is the username and the admin hands over a generated password. No SMS / OTP sign-in |
 
 - **No public sign-up.** Sign-ups are disabled in Supabase Auth. Accounts are created by Ops or Admin, individually or through imports. The new user receives an invite and sets a password on first login.
-- **Account recovery.** Staff and students use password-reset email. For parents, the OTP is the recovery path. A phone-number change is made by Ops after verification.
+- **Account recovery.** Everyone uses password-reset email ("Forgot password?"). Ops can also issue a parent a new password from People → Guardians.
 - **Web sessions.** `@supabase/ssr` stores the session in cookies. `proxy.ts` (named `middleware.ts` before Next.js 16) refreshes the session and redirects unauthenticated users to `/login`. It does no authorization. On the server, identity comes from `supabase.auth.getClaims()` or `getUser()`, never from `getSession()`.
-- **Bot protection.** Cloudflare Turnstile protects login, password reset and OTP, using Supabase Auth's CAPTCHA support.
+- **Bot protection.** Cloudflare Turnstile protects login and password reset, using Supabase Auth's CAPTCHA support.
 - **First run.** If the `college` row does not exist, every route redirects to `/setup`. The first admin account is created from the CLI using the service role (`npm run bootstrap:admin`).
 
 ---
@@ -824,7 +824,7 @@ Between the odd and even terms of the same year, `advance_term()` copies enrollm
 ### 11.5 Guardians
 
 - Created from the student import (guardian columns) or by hand.
-- A link stays `pending` until Ops verifies it against admission records. A verified link triggers an SMS invite, and the parent then signs in with OTP on that number.
+- A link stays `pending` until Ops verifies it against admission records. Ops then creates the parent's app login: their email as the username and a generated password, shown once to hand over. Parents never sign in with SMS / OTP.
 - Many guardians per student and many students per guardian (siblings) are supported.
 - **There is no self-linking.** Knowing an enrollment number never grants access.
 
@@ -1065,7 +1065,7 @@ Job health is checked from `cron.job_run_details`. Failures raise an alert ([§2
 - **RLS on every table in `public`.** A pgTAP test fails CI if any table has `rowsecurity = false`.
 - **The service-role key** is only ever on the server (Next.js server and Edge Functions). `lib/supabase/admin.ts` imports `server-only`. Every place the service role is used is listed in `docs/service-role-usage.md`: auth provisioning, report jobs and cron.
 - **MFA** (TOTP) is required for Principal and Admin. Tables holding roles, permissions and policies require `aal2` in RLS.
-- **Invite-only accounts**, with Supabase Auth rate limits and Turnstile CAPTCHA on login and OTP.
+- **Invite-only accounts**, with Supabase Auth rate limits and Turnstile CAPTCHA on login and password reset.
 - **Server Actions** are authenticated, authorised and Zod-validated through the wrapper. Next.js also enforces its built-in Origin check against CSRF.
 - **HTTP security headers:** a CSP allowing self, the Supabase domain and Cloudinary, plus HSTS, `frame-ancestors 'none'`, `Referrer-Policy` and `Permissions-Policy`.
 - **Least-data views.**

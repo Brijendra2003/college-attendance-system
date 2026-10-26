@@ -83,7 +83,7 @@ export function StudentCreateForm({ divisions }: { divisions: DivisionOption[] }
           <option>Guardian</option>
         </Select>
       </Field>
-      <Field name="guardianPhone" label="Guardian mobile" hint="The parent signs in with OTP on this number after verification">
+      <Field name="guardianPhone" label="Guardian mobile" hint="Contact number. After verifying the link, create the parent's app login under People → Guardians">
         <Input name="guardianPhone" inputMode="tel" />
       </Field>
       <div className="flex items-end justify-end sm:col-span-2">

@@ -33,6 +33,9 @@ Stack: Next.js 16 (App Router, Cache Components, `proxy.ts`), React 19, TypeScri
    ```
    It prints a one-time password. Sign in, enrol an authenticator app, and the **setup wizard** opens. It covers college
    details, the academic year and terms, departments, the curriculum blueprint and the attendance policy.
+   After importing people: staff and students get their logins from **Provision accounts** (a password-setup email).
+   Parents get theirs from **People → Guardians**: verify the link, then **Create login**. Their email is the username,
+   and the generated password is shown once for you to hand over. Parents never sign in with SMS or OTP.
 6. **Deploy.** `npm run build && npm start`, or any Node host (Vercel works as-is). Security headers (CSP, HSTS,
    frame-ancestors) are set in `next.config.ts`.
 

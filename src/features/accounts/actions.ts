@@ -11,8 +11,9 @@ import { db, rpc, unwrap } from "@/lib/db";
  * Provisions mobile-app accounts for staff or students that don't have one
  * yet (§12: a separate, re-runnable step after imports — Auth admin calls
  * can't join the database transaction). Each person gets an account with no
- * usable password and a password-setup email; parents sign in by phone OTP
- * instead and are linked on first sign-in.
+ * usable password and a password-setup email. Parent logins (email + a
+ * password the admin hands over) are issued per guardian from People →
+ * Guardians (features/guardians/actions.ts).
  *
  * The rows to provision are read as the signed-in user (so RLS and department
  * scope apply); only the Auth/profile writes use the service role.
