@@ -24,14 +24,23 @@ function safeNext(next: string | undefined) {
   return next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
 }
 
+/** Only a credentials error says "incorrect": an unreachable or misconfigured Auth server must not look like a typo. */
+function signInError(error: { code?: string; status?: number; message: string } | null): string {
+  const code = error?.code;
+  if (code === "invalid_credentials" || (!code && error?.status === 400)) return "Email or password is incorrect.";
+  if (code === "email_not_confirmed") return "This account isn't confirmed yet. Ask the college office to confirm it.";
+  if (code === "too_many_requests" || code === "over_request_rate_limit") return "Too many attempts. Wait a minute and try again.";
+  if (code === "user_banned") return "This account has been deactivated.";
+  console.error("[signIn]", error?.status, code, error?.message);
+  return "Couldn't reach the sign-in service. Try again; if it keeps happening, tell the admin.";
+}
+
 export async function signIn(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
   const parsed = signInSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Check your details" };
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signInWithPassword({ email: parsed.data.email, password: parsed.data.password });
-  if (error || !data.session) {
-    return { ok: false, error: error?.code === "too_many_requests" ? "Too many attempts. Wait a minute and try again." : "Email or password is incorrect." };
-  }
+  if (error || !data.session) return { ok: false, error: signInError(error) };
   const roles = claimsOf(data.session.access_token).app_roles ?? [];
   if (roles.includes("principal") || roles.includes("admin")) redirect(`/auth/mfa?next=${encodeURIComponent(safeNext(parsed.data.next))}`);
   redirect(safeNext(parsed.data.next));
