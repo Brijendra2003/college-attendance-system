@@ -19,6 +19,8 @@ import { db, rpc, unwrap } from "@/lib/db";
  * scope apply); only the Auth/profile writes use the service role.
  */
 const BATCH = 50;
+/** Deep link handled by the mobile app (MobileApp_Architecture.md §12). */
+const MOBILE_SET_PASSWORD_URL = "collegeapp://set-password";
 
 export const provisionAccounts = action({
   permission: ["staff.manage", "students.manage"],
@@ -58,7 +60,9 @@ export const provisionAccounts = action({
         continue;
       }
       // Password-setup email (Supabase Auth's reset flow doubles as the invite).
-      await admin.auth.resetPasswordForEmail(r.email).catch(() => undefined);
+      // The link opens the mobile app's Set password screen; the redirect URL
+      // must be allow-listed in Supabase Auth → URL Configuration.
+      await admin.auth.resetPasswordForEmail(r.email, { redirectTo: MOBILE_SET_PASSWORD_URL }).catch(() => undefined);
       created++;
     }
     await rpc("log_account_provisioning", { p_kind: input.kind, p_created: created, p_failed: failed.length });

@@ -25,14 +25,15 @@ function safeNext(next: string | undefined) {
 }
 
 /** Only a credentials error says "incorrect": an unreachable or misconfigured Auth server must not look like a typo. */
-function signInError(error: { code?: string; status?: number; message: string } | null): string {
+function signInError(error: { code?: string; status?: number; name?: string; message: string } | null): string {
   const code = error?.code;
   if (code === "invalid_credentials" || (!code && error?.status === 400)) return "Email or password is incorrect.";
   if (code === "email_not_confirmed") return "This account isn't confirmed yet. Ask the college office to confirm it.";
   if (code === "too_many_requests" || code === "over_request_rate_limit") return "Too many attempts. Wait a minute and try again.";
   if (code === "user_banned") return "This account has been deactivated.";
   console.error("[signIn]", error?.status, code, error?.message);
-  return "Couldn't reach the sign-in service. Try again; if it keeps happening, tell the admin.";
+  // The code (never the raw message) tells the admin which setting is wrong.
+  return `Couldn't reach the sign-in service (${code ?? error?.name ?? "unknown"}${error?.status ? `, ${error.status}` : ""}). Try again; if it keeps happening, tell the admin.`;
 }
 
 export async function signIn(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {

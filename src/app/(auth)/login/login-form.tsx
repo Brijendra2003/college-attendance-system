@@ -1,7 +1,7 @@
 "use client";
 
 import { use, useActionState, useState } from "react";
-import { CircleAlert, KeyRound } from "lucide-react";
+import { CircleAlert, Eye, EyeOff, KeyRound } from "lucide-react";
 import { signIn } from "@/features/auth/actions";
 import { Input } from "@/components/ui/forms";
 import { buttonClass } from "@/components/ui/primitives";
@@ -19,6 +19,7 @@ export function LoginForm({ demo, searchParams }: { demo: DemoAccount[]; searchP
   const [state, action, pending] = useActionState(signIn, null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   return (
     <>
@@ -28,10 +29,33 @@ export function LoginForm({ demo, searchParams }: { demo: DemoAccount[]; searchP
           <span className="mb-1 block text-xs font-semibold">College email</span>
           <Input name="email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
         </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-semibold">Password</span>
-          <Input name="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        </label>
+        <div>
+          <label htmlFor="password" className="mb-1 block text-xs font-semibold">
+            Password
+          </label>
+          <div className="relative">
+            <Input
+              id="password"
+              name="password"
+              type={showPassword ? "text" : "password"}
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              // Our own toggle replaces Edge's built-in reveal button.
+              className="pr-10 [&::-ms-reveal]:hidden"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              aria-pressed={showPassword}
+              className="absolute inset-y-0 right-0 grid w-10 place-items-center rounded-r-lg text-muted hover:text-ink focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:outline-none"
+            >
+              {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+            </button>
+          </div>
+        </div>
         {state && !state.ok && (
           <div role="alert" className="flex items-center gap-2 rounded-lg bg-bad-soft px-3 py-2 text-sm text-bad-ink">
             <CircleAlert className="size-4" /> {state.error}
